@@ -3,7 +3,7 @@ const retry = require('retry');
 
 class AbortError extends Error {
 	constructor(message) {
-		super(message);
+		super();
 
 		if (message instanceof Error) {
 			this.originalError = message;
@@ -13,7 +13,7 @@ class AbortError extends Error {
 			this.originalError.stack = this.stack;
 		}
 
-		this.name = 'AbortError';
+		this.name = this.constructor.name;
 		this.message = message;
 	}
 }
