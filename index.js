@@ -1,3 +1,4 @@
+/* eslint-disable unicorn/custom-error-definition */
 'use strict';
 const retry = require('retry');
 
@@ -13,7 +14,7 @@ class AbortError extends Error {
 			this.originalError.stack = this.stack;
 		}
 
-		this.name = this.constructor.name;
+		this.name = 'AbortError';
 		this.message = message;
 	}
 }
