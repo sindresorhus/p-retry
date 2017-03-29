@@ -2,6 +2,8 @@
 
 > Retry a promise-returning or async function
 
+It does exponential backoff and supports custom retry strategies for failed operations.
+
 
 ## Install
 
