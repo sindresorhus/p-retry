@@ -23,7 +23,7 @@ module.exports = (input, opts) => new Promise((resolve, reject) => {
 	const operation = retry.operation(opts);
 
 	operation.attempt(attempts => {
-		Promise.resolve(attempts)
+		Promise.resolve(input)
 			.then(input)
 			.then(resolve, err => {
 				if (err instanceof AbortError) {
