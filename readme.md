@@ -52,6 +52,12 @@ Type: `Object`
 
 Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
 
+##### onFailedAttempt(err, attemptNo, attemptsLeft)
+
+Type: `Function`
+
+Callback invoked on each retry. Receives the error thrown by `input` as the first argument, the current attempt number as the second argument and the number of attempts left as the third argument.
+
 ### pRetry.AbortError(message|error)
 
 Abort retrying and reject the promise.
