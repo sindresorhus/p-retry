@@ -25,10 +25,9 @@ module.exports = (input, opts) => new Promise((resolve, reject) => {
 		retries: 10
 	}, opts);
 	const operation = retry.operation(opts);
-	const {onFailedAttempt, retries} = opts;
 
 	operation.attempt(attemptNo => {
-		const attemptsLeft = retries - attemptNo;
+		const attemptsLeft = opts.retries - attemptNo;
 		return Promise.resolve(attemptNo)
 			.then(input)
 			.then(resolve, err => {
@@ -39,7 +38,7 @@ module.exports = (input, opts) => new Promise((resolve, reject) => {
 					operation.stop();
 					reject(err);
 				} else if (operation.retry(err)) {
-					onFailedAttempt(err, attemptNo, attemptsLeft);
+					opts.onFailedAttempt(err, attemptNo, attemptsLeft);
 				} else {
 					reject(operation.mainError());
 				}
