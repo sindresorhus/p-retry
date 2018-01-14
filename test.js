@@ -65,7 +65,7 @@ test('AbortError - error', t => {
 });
 
 test('onFailedAttempt is called expected number of times', async t => {
-	t.plan(6);
+	t.plan(8);
 
 	let i = 0;
 	let j = 0;
@@ -75,10 +75,12 @@ test('onFailedAttempt is called expected number of times', async t => {
 		i++;
 		return attemptNo === 3 ? fixture : Promise.reject(fixtureErr);
 	}, {
-		onFailedAttempt: (err, attemptNo) => {
+		onFailedAttempt: (err, attemptNo, attemptsLeft) => {
 			t.is(err, fixtureErr);
 			t.is(attemptNo, ++j);
-		}
+			t.is(attemptsLeft, 5 - attemptNo);
+		},
+		retries: 5
 	});
 
 	t.is(i, 3);
