@@ -21,9 +21,12 @@ class AbortError extends Error {
 
 module.exports = (input, opts) => new Promise((resolve, reject) => {
 	const operation = retry.operation(opts);
+	const {onFailedAttempt} = Object.assign({
+		onFailedAttempt: () => {}
+	}, opts);
 
-	operation.attempt(attempts => {
-		Promise.resolve(attempts)
+	operation.attempt(attemptNo => {
+		Promise.resolve(attemptNo)
 			.then(input)
 			.then(resolve, err => {
 				if (err instanceof AbortError) {
@@ -32,7 +35,9 @@ module.exports = (input, opts) => new Promise((resolve, reject) => {
 				} else if (err instanceof TypeError) {
 					operation.stop();
 					reject(err);
-				} else if (!operation.retry(err)) {
+				} else if (operation.retry(err)) {
+					onFailedAttempt(err, attemptNo);
+				} else {
 					reject(operation.mainError());
 				}
 			});
