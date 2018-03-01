@@ -1,6 +1,6 @@
 import test from 'ava';
 import delay from 'delay';
-import m from './';
+import m from '.';
 
 const fixture = Symbol('fixture');
 const fixtureErr = new Error('fixture');
