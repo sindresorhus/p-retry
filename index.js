@@ -38,7 +38,9 @@ module.exports = (input, opts) => new Promise((resolve, reject) => {
 					operation.stop();
 					reject(err);
 				} else if (operation.retry(err)) {
-					opts.onFailedAttempt(err, attemptNo, attemptsLeft);
+					err.attemptNo = attemptNo;
+					err.attemptsLeft = attemptsLeft;
+					opts.onFailedAttempt(err);
 				} else {
 					reject(operation.mainError());
 				}

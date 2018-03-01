@@ -75,10 +75,10 @@ test('onFailedAttempt is called expected number of times', async t => {
 		i++;
 		return attemptNo === 3 ? fixture : Promise.reject(fixtureErr);
 	}, {
-		onFailedAttempt: (err, attemptNo, attemptsLeft) => {
+		onFailedAttempt: err => {
 			t.is(err, fixtureErr);
-			t.is(attemptNo, ++j);
-			t.is(attemptsLeft, 5 - attemptNo);
+			t.is(err.attemptNo, ++j);
+			t.is(err.attemptsLeft, 5 - err.attemptNo);
 		},
 		retries: 5
 	});
