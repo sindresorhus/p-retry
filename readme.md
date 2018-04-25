@@ -31,6 +31,28 @@ const run = () => fetch('https://sindresorhus.com/unicorn')
 pRetry(run, {retries: 5}).then(result => {});
 ```
 
+With `onFailedAttempt` callback:
+
+```js
+const run = () => fetch('https://sindresorhus.com/unicorn')
+	.then(response => {
+		if (response.status !== 200) {
+			throw new Error(response.statusText);
+		}
+
+		return response.json();
+	});
+
+pRetry(run, {
+	onFailedAttempt: (err) => {
+		console.log('Attempt', err.attemptNumber, ' failed. There are ', err.attemptsLeft, ' attempts left.'),
+		// 1st request => Attempt 1 failed. There are 4 retries left.
+		// 2nd request => Attempt 2 failed. There are 3 retries left.
+		// ...
+	},
+	retries: 5
+}).then(result => {});
+```
 
 ## API
 
@@ -52,11 +74,11 @@ Type: `Object`
 
 Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
 
-##### onFailedAttempt(err, attemptNo, attemptsLeft)
+##### onFailedAttempt(err)
 
 Type: `Function`
 
-Callback invoked on each retry. Receives the error thrown by `input` as the first argument, the current attempt number as the second argument and the number of attempts left as the third argument.
+Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `attemptsLeft` which indicate the current attempt number and the number of attempts left, respectively.
 
 ### pRetry.AbortError(message|error)
 
