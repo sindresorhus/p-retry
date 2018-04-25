@@ -26,9 +26,9 @@ module.exports = (input, opts) => new Promise((resolve, reject) => {
 	}, opts);
 	const operation = retry.operation(opts);
 
-	operation.attempt(attemptNo => {
-		const attemptsLeft = opts.retries - attemptNo;
-		return Promise.resolve(attemptNo)
+	operation.attempt(attemptNumber => {
+		const attemptsLeft = opts.retries - attemptNumber;
+		return Promise.resolve(attemptNumber)
 			.then(input)
 			.then(resolve, err => {
 				if (err instanceof AbortError) {
@@ -38,7 +38,7 @@ module.exports = (input, opts) => new Promise((resolve, reject) => {
 					operation.stop();
 					reject(err);
 				} else if (operation.retry(err)) {
-					err.attemptNo = attemptNo;
+					err.attemptNumber = attemptNumber;
 					err.attemptsLeft = attemptsLeft;
 					opts.onFailedAttempt(err);
 				} else {

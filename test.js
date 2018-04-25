@@ -8,10 +8,10 @@ const fixtureErr = new Error('fixture');
 test('retries', async t => {
 	let i = 0;
 
-	const ret = await m(async attemptNo => {
+	const ret = await m(async attemptNumber => {
 		await delay(40);
 		i++;
-		return attemptNo === 3 ? fixture : Promise.reject(fixtureErr);
+		return attemptNumber === 3 ? fixture : Promise.reject(fixtureErr);
 	});
 
 	t.is(ret, fixture);
@@ -23,10 +23,10 @@ test('aborts', async t => {
 
 	let i = 0;
 
-	await m(async attemptNo => {
+	await m(async attemptNumber => {
 		await delay(40);
 		i++;
-		return attemptNo === 3 ? Promise.reject(new m.AbortError(fixtureErr)) : Promise.reject(fixtureErr);
+		return attemptNumber === 3 ? Promise.reject(new m.AbortError(fixtureErr)) : Promise.reject(fixtureErr);
 	}).catch(err => {
 		t.is(err, fixtureErr);
 	});
@@ -41,10 +41,10 @@ test('no retry on TypeError', async t => {
 
 	let i = 0;
 
-	await m(async attemptNo => {
+	await m(async attemptNumber => {
 		await delay(40);
 		i++;
-		return attemptNo === 3 ? fixture : Promise.reject(tErr);
+		return attemptNumber === 3 ? fixture : Promise.reject(tErr);
 	}).catch(err => {
 		t.is(err, tErr);
 	});
@@ -70,15 +70,15 @@ test('onFailedAttempt is called expected number of times', async t => {
 	let i = 0;
 	let j = 0;
 
-	await m(async attemptNo => {
+	await m(async attemptNumber => {
 		await delay(40);
 		i++;
-		return attemptNo === 3 ? fixture : Promise.reject(fixtureErr);
+		return attemptNumber === 3 ? fixture : Promise.reject(fixtureErr);
 	}, {
 		onFailedAttempt: err => {
 			t.is(err, fixtureErr);
-			t.is(err.attemptNo, ++j);
-			t.is(err.attemptsLeft, 5 - err.attemptNo);
+			t.is(err.attemptNumber, ++j);
+			t.is(err.attemptsLeft, 5 - err.attemptNumber);
 		},
 		retries: 5
 	});
