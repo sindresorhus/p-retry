@@ -1,4 +1,3 @@
-/* eslint-disable unicorn/custom-error-definition */
 'use strict';
 const retry = require('retry');
 
@@ -8,7 +7,7 @@ class AbortError extends Error {
 
 		if (message instanceof Error) {
 			this.originalError = message;
-			message = message.message;
+			({message} = message);
 		} else {
 			this.originalError = new Error(message);
 			this.originalError.stack = this.stack;
@@ -19,28 +18,30 @@ class AbortError extends Error {
 	}
 }
 
-module.exports = (input, opts) => new Promise((resolve, reject) => {
-	opts = Object.assign({
+module.exports = (input, options) => new Promise((resolve, reject) => {
+	options = Object.assign({
 		onFailedAttempt: () => {},
 		retries: 10
-	}, opts);
-	const operation = retry.operation(opts);
+	}, options);
+
+	const operation = retry.operation(options);
 
 	operation.attempt(attemptNumber => {
-		const attemptsLeft = opts.retries - attemptNumber;
+		const attemptsLeft = options.retries - attemptNumber;
+
 		return Promise.resolve(attemptNumber)
 			.then(input)
-			.then(resolve, err => {
-				if (err instanceof AbortError) {
+			.then(resolve, error => {
+				if (error instanceof AbortError) {
 					operation.stop();
-					reject(err.originalError);
-				} else if (err instanceof TypeError) {
+					reject(error.originalError);
+				} else if (error instanceof TypeError) {
 					operation.stop();
-					reject(err);
-				} else if (operation.retry(err)) {
-					err.attemptNumber = attemptNumber;
-					err.attemptsLeft = attemptsLeft;
-					opts.onFailedAttempt(err);
+					reject(error);
+				} else if (operation.retry(error)) {
+					error.attemptNumber = attemptNumber;
+					error.attemptsLeft = attemptsLeft;
+					options.onFailedAttempt(error);
 				} else {
 					reject(operation.mainError());
 				}

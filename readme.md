@@ -8,7 +8,7 @@ It does exponential backoff and supports custom retry strategies for failed oper
 ## Install
 
 ```
-$ npm install --save p-retry
+$ npm install p-retry
 ```
 
 
@@ -20,7 +20,7 @@ const fetch = require('node-fetch');
 
 const run = () => fetch('https://sindresorhus.com/unicorn')
 	.then(response => {
-		// abort retrying if the resource doesn't exist
+		// Abort retrying if the resource doesn't exist
 		if (response.status === 404) {
 			throw new pRetry.AbortError(response.statusText);
 		}
@@ -31,7 +31,7 @@ const run = () => fetch('https://sindresorhus.com/unicorn')
 pRetry(run, {retries: 5}).then(result => {});
 ```
 
-With `onFailedAttempt` callback:
+With the `onFailedAttempt` option:
 
 ```js
 const run = () => fetch('https://sindresorhus.com/unicorn')
@@ -44,8 +44,8 @@ const run = () => fetch('https://sindresorhus.com/unicorn')
 	});
 
 pRetry(run, {
-	onFailedAttempt: (err) => {
-		console.log('Attempt', err.attemptNumber, ' failed. There are ', err.attemptsLeft, ' attempts left.'),
+	onFailedAttempt: error => {
+		console.log(`Attempt ${error.attemptNumber} failed. There are ${error.attemptsLeft} attempts left.`),
 		// 1st request => Attempt 1 failed. There are 4 retries left.
 		// 2nd request => Attempt 2 failed. There are 3 retries left.
 		// ...
@@ -53,6 +53,7 @@ pRetry(run, {
 	retries: 5
 }).then(result => {});
 ```
+
 
 ## API
 
