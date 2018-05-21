@@ -45,7 +45,7 @@ const run = () => fetch('https://sindresorhus.com/unicorn')
 
 pRetry(run, {
 	onFailedAttempt: error => {
-		console.log(`Attempt ${error.attemptNumber} failed. There are ${error.attemptsLeft} attempts left.`),
+		console.log(`Attempt ${error.attemptNumber} failed. There are ${error.attemptsLeft} attempts left.`);
 		// 1st request => Attempt 1 failed. There are 4 retries left.
 		// 2nd request => Attempt 2 failed. There are 3 retries left.
 		// ...
