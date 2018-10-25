@@ -25,9 +25,10 @@ module.exports = (input, options) => new Promise((resolve, reject) => {
 	}, options);
 
 	const operation = retry.operation(options);
+	const retries = options.retries + 1;
 
 	operation.attempt(attemptNumber => {
-		const attemptsLeft = options.retries - attemptNumber;
+		const attemptsLeft = retries - attemptNumber;
 
 		return Promise.resolve(attemptNumber)
 			.then(input)
@@ -43,6 +44,9 @@ module.exports = (input, options) => new Promise((resolve, reject) => {
 					error.attemptsLeft = attemptsLeft;
 					options.onFailedAttempt(error);
 				} else {
+					error.attemptNumber = attemptNumber;
+					error.attemptsLeft = attemptsLeft;
+					options.onFailedAttempt(error);
 					reject(operation.mainError());
 				}
 			});
