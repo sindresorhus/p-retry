@@ -28,7 +28,7 @@ module.exports = (input, options) => new Promise((resolve, reject) => {
 	const {retries} = options;
 
 	operation.attempt(attemptNumber => {
-		// minus 1 from attemptNumber because the first attempt does not count as a retry
+		// Minus 1 from attemptNumber because the first attempt does not count as a retry
 		const retriesLeft = retries - (attemptNumber - 1);
 
 		return Promise.resolve(attemptNumber)
