@@ -81,7 +81,24 @@ test('onFailedAttempt is called expected number of times', async t => {
 			onFailedAttempt: err => {
 				t.is(err, fixtureErr);
 				t.is(err.attemptNumber, ++j);
-				t.is(err.attemptsLeft, r + 1 - err.attemptNumber);
+
+				switch (i) {
+					case 1:
+						t.is(err.retriesLeft, r);
+						break;
+					case 2:
+						t.is(err.retriesLeft, 4);
+						break;
+					case 3:
+						t.is(err.retriesLeft, 3);
+						break;
+					case 4:
+						t.is(err.retriesLeft, 2);
+						break;
+					default:
+						t.fail('onFailedAttempt was called more than 4 times');
+						break;
+				}
 			},
 			retries: r
 		},
@@ -92,9 +109,9 @@ test('onFailedAttempt is called expected number of times', async t => {
 });
 
 test('onFailedAttempt is called before last rejection', async t => {
-	t.plan(21);
+	t.plan(15);
 
-	const r = 5;
+	const r = 3;
 	let i = 0;
 	let j = 0;
 
@@ -108,13 +125,30 @@ test('onFailedAttempt is called before last rejection', async t => {
 			onFailedAttempt: err => {
 				t.is(err, fixtureErr);
 				t.is(err.attemptNumber, ++j);
-				t.is(err.attemptsLeft, r + 1 - err.attemptNumber);
+
+				switch (i) {
+					case 1:
+						t.is(err.retriesLeft, r);
+						break;
+					case 2:
+						t.is(err.retriesLeft, 2);
+						break;
+					case 3:
+						t.is(err.retriesLeft, 1);
+						break;
+					case 4:
+						t.is(err.retriesLeft, 0);
+						break;
+					default:
+						t.fail('onFailedAttempt was called more than 4 times');
+						break;
+				}
 			},
 			retries: r
 		},
 	).catch(error => {
 		t.is(error, fixtureErr);
-		t.is(i, r + 1);
-		t.is(j, r + 1);
+		t.is(i, 4);
+		t.is(j, 4);
 	});
 });
