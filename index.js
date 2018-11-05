@@ -18,6 +18,16 @@ class AbortError extends Error {
 	}
 }
 
+function decorateErrorWithCounts(error, attemptNumber, options) {
+	// Minus 1 from attemptNumber because the first attempt does not count as a retry
+	const retriesLeft = options.retries - (attemptNumber - 1);
+
+	error.attemptNumber = attemptNumber;
+	error.retriesLeft = retriesLeft;
+
+	return error;
+}
+
 module.exports = (input, options) => new Promise((resolve, reject) => {
 	options = Object.assign({
 		onFailedAttempt: () => {},
@@ -25,33 +35,26 @@ module.exports = (input, options) => new Promise((resolve, reject) => {
 	}, options);
 
 	const operation = retry.operation(options);
-	const {retries} = options;
 
-	operation.attempt(attemptNumber => {
-		// Minus 1 from attemptNumber because the first attempt does not count as a retry
-		const retriesLeft = retries - (attemptNumber - 1);
-
-		return Promise.resolve(attemptNumber)
-			.then(input)
-			.then(resolve, error => {
-				if (error instanceof AbortError) {
-					operation.stop();
-					reject(error.originalError);
-				} else if (error instanceof TypeError) {
-					operation.stop();
-					reject(error);
-				} else if (operation.retry(error)) {
-					error.attemptNumber = attemptNumber;
-					error.retriesLeft = retriesLeft;
-					options.onFailedAttempt(error);
-				} else {
-					error.attemptNumber = attemptNumber;
-					error.retriesLeft = retriesLeft;
-					options.onFailedAttempt(error);
-					reject(operation.mainError());
-				}
-			});
-	});
+	operation.attempt(attemptNumber => Promise.resolve(attemptNumber)
+		.then(input)
+		.then(resolve, error => {
+			if (error instanceof AbortError) {
+				operation.stop();
+				reject(error.originalError);
+			} else if (error instanceof TypeError) {
+				operation.stop();
+				reject(error);
+			} else if (operation.retry(error)) {
+				decorateErrorWithCounts(error, attemptNumber, options);
+				options.onFailedAttempt(error);
+			} else {
+				decorateErrorWithCounts(error, attemptNumber, options);
+				options.onFailedAttempt(error);
+				reject(operation.mainError());
+			}
+		})
+	);
 });
 
 module.exports.AbortError = AbortError;
