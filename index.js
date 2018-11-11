@@ -8,6 +8,7 @@ class AbortError extends Error {
 		if (message instanceof Error) {
 			this.originalError = message;
 			({message} = message);
+			this.stack = message.stack;
 		} else {
 			this.originalError = new Error(message);
 			this.originalError.stack = this.stack;
