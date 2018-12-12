@@ -1,6 +1,6 @@
 import test from 'ava';
 import delay from 'delay';
-import m from '.';
+import pRetry from '.';
 
 const fixture = Symbol('fixture');
 const fixtureErr = new Error('fixture');
@@ -8,7 +8,7 @@ const fixtureErr = new Error('fixture');
 test('retries', async t => {
 	let i = 0;
 
-	const ret = await m(async attemptNumber => {
+	const ret = await pRetry(async attemptNumber => {
 		await delay(40);
 		i++;
 		return attemptNumber === 3 ? fixture : Promise.reject(fixtureErr);
@@ -23,10 +23,10 @@ test('aborts', async t => {
 
 	let i = 0;
 
-	await m(async attemptNumber => {
+	await pRetry(async attemptNumber => {
 		await delay(40);
 		i++;
-		return attemptNumber === 3 ? Promise.reject(new m.AbortError(fixtureErr)) : Promise.reject(fixtureErr);
+		return attemptNumber === 3 ? Promise.reject(new pRetry.AbortError(fixtureErr)) : Promise.reject(fixtureErr);
 	}).catch(error => {
 		t.is(error, fixtureErr);
 	});
@@ -41,7 +41,7 @@ test('no retry on TypeError', async t => {
 
 	let i = 0;
 
-	await m(async attemptNumber => {
+	await pRetry(async attemptNumber => {
 		await delay(40);
 		i++;
 		return attemptNumber === 3 ? fixture : Promise.reject(tErr);
@@ -53,13 +53,13 @@ test('no retry on TypeError', async t => {
 });
 
 test('AbortError - string', t => {
-	const err = new m.AbortError('fixture').originalError;
+	const err = new pRetry.AbortError('fixture').originalError;
 	t.is(err.constructor.name, 'Error');
 	t.is(err.message, 'fixture');
 });
 
 test('AbortError - error', t => {
-	const err = new m.AbortError(new Error('fixture')).originalError;
+	const err = new pRetry.AbortError(new Error('fixture')).originalError;
 	t.is(err.constructor.name, 'Error');
 	t.is(err.message, 'fixture');
 });
@@ -71,7 +71,7 @@ test('onFailedAttempt is called expected number of times', async t => {
 	let i = 0;
 	let j = 0;
 
-	await m(
+	await pRetry(
 		async attemptNumber => {
 			await delay(40);
 			i++;
@@ -115,7 +115,7 @@ test('onFailedAttempt is called before last rejection', async t => {
 	let i = 0;
 	let j = 0;
 
-	await m(
+	await pRetry(
 		async () => {
 			await delay(40);
 			i++;

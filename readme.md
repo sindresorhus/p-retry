@@ -18,40 +18,48 @@ $ npm install p-retry
 const pRetry = require('p-retry');
 const fetch = require('node-fetch');
 
-const run = () => fetch('https://sindresorhus.com/unicorn')
-	.then(response => {
-		// Abort retrying if the resource doesn't exist
-		if (response.status === 404) {
-			throw new pRetry.AbortError(response.statusText);
-		}
+const run = async () => {
+	const response = await fetch('https://sindresorhus.com/unicorn');
 
-		return response.blob();
-	});
+	// Abort retrying if the resource doesn't exist
+	if (response.status === 404) {
+		throw new pRetry.AbortError(response.statusText);
+	}
 
-pRetry(run, {retries: 5}).then(result => {});
+	return response.blob();
+};
+
+(async () => {
+	console.log(await pRetry(run, {retries: 5}));
+})();
 ```
 
 With the `onFailedAttempt` option:
 
 ```js
-const run = () => fetch('https://sindresorhus.com/unicorn')
-	.then(response => {
-		if (response.status !== 200) {
-			throw new Error(response.statusText);
-		}
+const run = async () => {
+	const response = await fetch('https://sindresorhus.com/unicorn');
 
-		return response.json();
+	if (response.status !== 200) {
+		throw new Error(response.statusText);
+	}
+
+	return response.json();
+};
+
+(async () => {
+	const result = await pRetry(run, {
+		onFailedAttempt: error => {
+			console.log(`Attempt ${error.attemptNumber} failed. There are ${error.attemptsLeft} attempts left.`);
+			// 1st request => Attempt 1 failed. There are 4 retries left.
+			// 2nd request => Attempt 2 failed. There are 3 retries left.
+			// …
+		},
+		retries: 5
 	});
 
-pRetry(run, {
-	onFailedAttempt: error => {
-		console.log(`Attempt ${error.attemptNumber} failed. There are ${error.attemptsLeft} attempts left.`);
-		// 1st request => Attempt 1 failed. There are 4 retries left.
-		// 2nd request => Attempt 2 failed. There are 3 retries left.
-		// ...
-	},
-	retries: 5
-}).then(result => {});
+	console.log(result);
+})();
 ```
 
 
@@ -75,7 +83,7 @@ Type: `Object`
 
 Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
 
-##### onFailedAttempt(err)
+##### onFailedAttempt(error)
 
 Type: `Function`
 
