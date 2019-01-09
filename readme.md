@@ -87,7 +87,7 @@ Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryo
 
 Type: `Function`
 
-Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `attemptsLeft` which indicate the current attempt number and the number of attempts left, respectively.
+Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
 
 ### pRetry.AbortError(message|error)
 
