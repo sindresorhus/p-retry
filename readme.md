@@ -50,7 +50,7 @@ const run = async () => {
 (async () => {
 	const result = await pRetry(run, {
 		onFailedAttempt: error => {
-			console.log(`Attempt ${error.attemptNumber} failed. There are ${error.attemptsLeft} attempts left.`);
+			console.log(`Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`);
 			// 1st request => Attempt 1 failed. There are 4 retries left.
 			// 2nd request => Attempt 2 failed. There are 3 retries left.
 			// …
@@ -87,7 +87,7 @@ Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryo
 
 Type: `Function`
 
-Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `attemptsLeft` which indicate the current attempt number and the number of attempts left, respectively.
+Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
 
 ### pRetry.AbortError(message|error)
 
