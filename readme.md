@@ -106,6 +106,27 @@ Type: `Error`
 Custom error.
 
 
+## Tip
+
+You can pass arguments to the function being retried by wrapping it in an inline arrow function:
+
+```js
+const pRetry = require('p-retry');
+
+const run = async emoji => {
+	// …
+};
+
+(async () => {
+	// Without arguments
+	await pRetry(run, {retries: 5});
+
+	// With arguments
+	await pRetry(() => run('🦄'), {retries: 5});
+})();
+```
+
+
 ## Related
 
 - [p-timeout](https://github.com/sindresorhus/p-timeout) - Timeout a promise after a specified amount of time
