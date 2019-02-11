@@ -62,6 +62,61 @@ const run = async () => {
 })();
 ```
 
+With the `onFailedAttempt` option and optional `context`:
+
+```js
+const pRetry = require('p-retry');
+
+class AuthenticatedPoller {
+    constructor (oauthToken) {
+        this.token = oauthToken;
+    }
+
+    failHandler (error, context) {
+        console.log(JSON.stringify(error));
+        console.log(`Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`);
+
+        if (error.response.statusCode === 401 && error.response.error === 'OAuthTokenExpired') {
+            console.log(`OAuth token ${poller.token} has expired, refreshing token`);
+            context.refreshOAuthToken();
+        }
+    }
+
+    startPolling() {
+        pRetry(() => this.callAPI(this.token), {
+            onFailedAttempt: this.failHandler,
+            retries: 5,
+            context: this,
+        });
+    }
+
+    callAPI (token) {
+        // Ensure an error on first call with default token of 10000
+        if (token === 10000) {
+            // Simulate an a 401 response by simply throwing an error
+            throw {
+                response: {
+                    statusCode: 401,
+                    error: 'OAuthTokenExpired',
+                }
+            };
+        } else {
+            console.log('Call completed successfully!');
+        }
+
+    }
+
+    refreshOAuthToken() {
+        // Fake OAuth token refresh
+        this.token += 1;
+        console.log(`New OAuth token is : ${this.token}`);
+    }
+}
+
+const poller = new AuthenticatedPoller(10000);
+poller.startPolling();
+
+```
 
 ## API
 
@@ -83,11 +138,11 @@ Type: `Object`
 
 Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
 
-##### onFailedAttempt(error)
+##### onFailedAttempt(error, context)
 
 Type: `Function`
 
-Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
+Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.  `context` is an optional parameter passed if `options.context` is defined.  `context` would commonly be used if `onFailAttempt()` needs to affect the state of an object or invoke a method from it.  See the "`onFailedAttempt` with context option" example above.
 
 ### pRetry.AbortError(message|error)
 
