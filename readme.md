@@ -62,6 +62,10 @@ const run = async () => {
 })();
 ```
 
+With the `onFailedAttempt` option:
+
+```js
+```
 
 ## API
 
@@ -83,11 +87,11 @@ Type: `Object`
 
 Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
 
-##### onFailedAttempt(error)
+##### onFailedAttempt(error, context)
 
 Type: `Function`
 
-Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
+Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.  `context` is an optional parameter passed if `options.context` is defined.  `context` would commonly be used if `onFailAttempt()` needs to affect the state of an object or invoke a method from it.  See the "`onFailedAttempt` with context option" example above.
 
 ### pRetry.AbortError(message|error)
 

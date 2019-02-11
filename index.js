@@ -47,10 +47,10 @@ module.exports = (input, options) => new Promise((resolve, reject) => {
 				reject(error);
 			} else if (operation.retry(error)) {
 				decorateErrorWithCounts(error, attemptNumber, options);
-				options.onFailedAttempt(error);
+				options.onFailedAttempt(error, options.context);
 			} else {
 				decorateErrorWithCounts(error, attemptNumber, options);
-				options.onFailedAttempt(error);
+				options.onFailedAttempt(error, options.context);
 				reject(operation.mainError());
 			}
 		})
