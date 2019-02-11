@@ -62,9 +62,60 @@ const run = async () => {
 })();
 ```
 
-With the `onFailedAttempt` option:
+With the `onFailedAttempt` option and optional `context`:
 
 ```js
+const pRetry = require('p-retry');
+
+class AuthenticatedPoller {
+    constructor (oauthToken) {
+        this.token = oauthToken;
+    }
+
+    failHandler (error, context) {
+        console.log(JSON.stringify(error));
+        console.log(`Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`);
+
+        if (error.response.statusCode === 401 && error.response.error === 'OAuthTokenExpired') {
+            console.log(`OAuth token ${poller.token} has expired, refreshing token`);
+            context.refreshOAuthToken();
+        }
+    }
+
+    startPolling() {
+        pRetry(() => this.callAPI(this.token), {
+            onFailedAttempt: this.failHandler,
+            retries: 5,
+            context: this,
+        });
+    }
+
+    callAPI (token) {
+        // Ensure an error on first call with default token of 10000
+        if (token === 10000) {
+            // Simulate an a 401 response by simply throwing an error
+            throw {
+                response: {
+                    statusCode: 401,
+                    error: 'OAuthTokenExpired',
+                }
+            };
+        } else {
+            console.log('Call completed successfully!');
+        }
+
+    }
+
+    refreshOAuthToken() {
+        // Fake OAuth token refresh
+        this.token += 1;
+        console.log(`New OAuth token is : ${this.token}`);
+    }
+}
+
+const poller = new AuthenticatedPoller(10000);
+poller.startPolling();
+
 ```
 
 ## API
