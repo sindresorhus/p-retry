@@ -152,3 +152,26 @@ test('onFailedAttempt is called before last rejection', async t => {
 		t.is(j, 4);
 	});
 });
+
+test('onFailedAttempt receives context when defined', async t => {
+	await pRetry(
+		async () => {
+			await delay(40);
+			return Promise.reject(fixtureErr);
+		},
+		{
+			onFailedAttempt: (err, con) => {
+				t.is(err, fixtureErr);
+				t.is(con.simulated, 'context');
+				t.is(con.fake, true);
+			},
+			context: {
+				simulated: 'context',
+				fake: true
+			},
+			retries: 2
+		}
+	).catch(error => {
+		t.is(error, fixtureErr);
+	});
+});
