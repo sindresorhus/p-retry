@@ -28,7 +28,7 @@ function decorateErrorWithCounts(error, attemptNumber, options) {
 	return error;
 }
 
-module.exports = (input, options) => new Promise((resolve, reject) => {
+const pRetry = (input, options) => new Promise((resolve, reject) => {
 	options = Object.assign({
 		onFailedAttempt: () => {},
 		retries: 10
@@ -56,5 +56,8 @@ module.exports = (input, options) => new Promise((resolve, reject) => {
 		})
 	);
 });
+
+module.exports = pRetry;
+module.exports.default = pRetry;
 
 module.exports.AbortError = AbortError;
