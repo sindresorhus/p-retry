@@ -18,27 +18,28 @@ class AbortError extends Error {
 	}
 }
 
-function decorateErrorWithCounts(error, attemptNumber, options) {
+const decorateErrorWithCounts = (error, attemptNumber, options) => {
 	// Minus 1 from attemptNumber because the first attempt does not count as a retry
 	const retriesLeft = options.retries - (attemptNumber - 1);
 
 	error.attemptNumber = attemptNumber;
 	error.retriesLeft = retriesLeft;
-
 	return error;
-}
+};
 
 const pRetry = (input, options) => new Promise((resolve, reject) => {
-	options = Object.assign({
+	options = {
 		onFailedAttempt: () => {},
-		retries: 10
-	}, options);
+		retries: 10,
+		...options
+	};
 
 	const operation = retry.operation(options);
 
-	operation.attempt(attemptNumber => Promise.resolve(attemptNumber)
-		.then(input)
-		.then(resolve, error => {
+	operation.attempt(async attemptNumber => {
+		try {
+			resolve(await input(attemptNumber));
+		} catch (error) {
 			if (!(error instanceof Error)) {
 				reject(new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`));
 				return;
@@ -50,16 +51,16 @@ const pRetry = (input, options) => new Promise((resolve, reject) => {
 			} else if (error instanceof TypeError) {
 				operation.stop();
 				reject(error);
-			} else if (operation.retry(error)) {
-				decorateErrorWithCounts(error, attemptNumber, options);
-				options.onFailedAttempt(error);
 			} else {
 				decorateErrorWithCounts(error, attemptNumber, options);
 				options.onFailedAttempt(error);
-				reject(operation.mainError());
+
+				if (!operation.retry(error)) {
+					reject(operation.mainError());
+				}
 			}
-		})
-	);
+		}
+	});
 });
 
 module.exports = pRetry;

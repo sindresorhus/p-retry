@@ -3,7 +3,7 @@ import delay from 'delay';
 import pRetry from '.';
 
 const fixture = Symbol('fixture');
-const fixtureErr = new Error('fixture');
+const fixtureError = new Error('fixture');
 
 test('retries', async t => {
 	let i = 0;
@@ -11,7 +11,7 @@ test('retries', async t => {
 	const ret = await pRetry(async attemptNumber => {
 		await delay(40);
 		i++;
-		return attemptNumber === 3 ? fixture : Promise.reject(fixtureErr);
+		return attemptNumber === 3 ? fixture : Promise.reject(fixtureError);
 	});
 
 	t.is(ret, fixture);
@@ -23,13 +23,11 @@ test('aborts', async t => {
 
 	let i = 0;
 
-	await pRetry(async attemptNumber => {
+	await t.throwsAsync(pRetry(async attemptNumber => {
 		await delay(40);
 		i++;
-		return attemptNumber === 3 ? Promise.reject(new pRetry.AbortError(fixtureErr)) : Promise.reject(fixtureErr);
-	}).catch(error => {
-		t.is(error, fixtureErr);
-	});
+		return attemptNumber === 3 ? Promise.reject(new pRetry.AbortError(fixtureError)) : Promise.reject(fixtureError);
+	}), {is: fixtureError});
 
 	t.is(i, 3);
 });
@@ -37,31 +35,29 @@ test('aborts', async t => {
 test('no retry on TypeError', async t => {
 	t.plan(2);
 
-	const tErr = new TypeError('fixture');
+	const typeErrorFixture = new TypeError('type-error-fixture');
 
 	let i = 0;
 
-	await pRetry(async attemptNumber => {
+	await t.throwsAsync(pRetry(async attemptNumber => {
 		await delay(40);
 		i++;
-		return attemptNumber === 3 ? fixture : Promise.reject(tErr);
-	}).catch(error => {
-		t.is(error, tErr);
-	});
+		return attemptNumber === 3 ? fixture : Promise.reject(typeErrorFixture);
+	}), {is: typeErrorFixture});
 
 	t.is(i, 1);
 });
 
 test('AbortError - string', t => {
-	const err = new pRetry.AbortError('fixture').originalError;
-	t.is(err.constructor.name, 'Error');
-	t.is(err.message, 'fixture');
+	const error = new pRetry.AbortError('fixture').originalError;
+	t.is(error.constructor.name, 'Error');
+	t.is(error.message, 'fixture');
 });
 
 test('AbortError - error', t => {
-	const err = new pRetry.AbortError(new Error('fixture')).originalError;
-	t.is(err.constructor.name, 'Error');
-	t.is(err.message, 'fixture');
+	const error = new pRetry.AbortError(new Error('fixture')).originalError;
+	t.is(error.constructor.name, 'Error');
+	t.is(error.message, 'fixture');
 });
 
 test('onFailedAttempt is called expected number of times', async t => {
@@ -75,11 +71,11 @@ test('onFailedAttempt is called expected number of times', async t => {
 		async attemptNumber => {
 			await delay(40);
 			i++;
-			return attemptNumber === 3 ? fixture : Promise.reject(fixtureErr);
+			return attemptNumber === 3 ? fixture : Promise.reject(fixtureError);
 		},
 		{
 			onFailedAttempt: err => {
-				t.is(err, fixtureErr);
+				t.is(err, fixtureError);
 				t.is(err.attemptNumber, ++j);
 
 				switch (i) {
@@ -115,29 +111,29 @@ test('onFailedAttempt is called before last rejection', async t => {
 	let i = 0;
 	let j = 0;
 
-	await pRetry(
+	await t.throwsAsync(pRetry(
 		async () => {
 			await delay(40);
 			i++;
-			return Promise.reject(fixtureErr);
+			return Promise.reject(fixtureError);
 		},
 		{
-			onFailedAttempt: err => {
-				t.is(err, fixtureErr);
-				t.is(err.attemptNumber, ++j);
+			onFailedAttempt: error => {
+				t.is(error, fixtureError);
+				t.is(error.attemptNumber, ++j);
 
 				switch (i) {
 					case 1:
-						t.is(err.retriesLeft, r);
+						t.is(error.retriesLeft, r);
 						break;
 					case 2:
-						t.is(err.retriesLeft, 2);
+						t.is(error.retriesLeft, 2);
 						break;
 					case 3:
-						t.is(err.retriesLeft, 1);
+						t.is(error.retriesLeft, 1);
 						break;
 					case 4:
-						t.is(err.retriesLeft, 0);
+						t.is(error.retriesLeft, 0);
 						break;
 					default:
 						t.fail('onFailedAttempt was called more than 4 times');
@@ -146,11 +142,11 @@ test('onFailedAttempt is called before last rejection', async t => {
 			},
 			retries: r
 		},
-	).catch(error => {
-		t.is(error, fixtureErr);
-		t.is(i, 4);
-		t.is(j, 4);
-	});
+	), {is: fixtureError});
+
+	t.is(i, 4);
+	t.is(j, 4);
+});
 
 test('throws useful error message when non-error is thrown', async t => {
 	await t.throwsAsync(pRetry(() => {
