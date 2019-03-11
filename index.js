@@ -39,6 +39,11 @@ const pRetry = (input, options) => new Promise((resolve, reject) => {
 	operation.attempt(attemptNumber => Promise.resolve(attemptNumber)
 		.then(input)
 		.then(resolve, error => {
+			if (!(error instanceof Error)) {
+				reject(new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`));
+				return;
+			}
+
 			if (error instanceof AbortError) {
 				operation.stop();
 				reject(error.originalError);

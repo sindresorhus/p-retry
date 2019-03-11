@@ -151,4 +151,9 @@ test('onFailedAttempt is called before last rejection', async t => {
 		t.is(i, 4);
 		t.is(j, 4);
 	});
+
+test('throws useful error message when non-error is thrown', async t => {
+	await t.throwsAsync(pRetry(() => {
+		throw 'foo'; // eslint-disable-line no-throw-literal
+	}), /Non-error/);
 });
