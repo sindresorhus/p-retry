@@ -64,6 +64,7 @@ const pRetry = (input, options) => new Promise((resolve, reject) => {
 });
 
 module.exports = pRetry;
+// TODO: remove this in the next major version
 module.exports.default = pRetry;
 
 module.exports.AbortError = AbortError;
