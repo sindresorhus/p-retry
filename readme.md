@@ -75,7 +75,7 @@ It doesn't retry on `TypeError` as that's a user error.
 
 Type: `Function`
 
-Receives the number of attempts as the first argument and is expected to return a `Promise` or any value.
+Receives the current attempt number as the first argument and is expected to return a `Promise` or any value.
 
 #### options
 
