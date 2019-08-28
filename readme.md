@@ -67,7 +67,7 @@ const run = async () => {
 
 ### pRetry(input, [options])
 
-Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the max retries are reached, it then rejects with the last rejection reason.
+Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the maximum number of retries is reached. It then rejects with the last rejection reason.
 
 It doesn't retry on `TypeError` as that's a user error.
 
