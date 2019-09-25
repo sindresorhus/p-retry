@@ -53,7 +53,7 @@ const pRetry = (input, options) => new Promise((resolve, reject) => {
 				reject(error);
 			} else {
 				decorateErrorWithCounts(error, attemptNumber, options);
-				options.onFailedAttempt(error);
+				await options.onFailedAttempt(error);
 
 				if (!operation.retry(error)) {
 					reject(operation.mainError());
