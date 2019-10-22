@@ -62,6 +62,16 @@ const run = async () => {
 })();
 ```
 
+`onFailedAttempt` can return a promise to enable introducing a retry [delay](https://www.npmjs.com/package/delay):
+
+```js
+onFailedAttempt: async (error) => {
+	console.log('waiting for 1s before retrying');
+	await delay(1000)
+},
+```
+
+If `onFailedAttempt` throws, all retries will be aborted.
 
 ## API
 
