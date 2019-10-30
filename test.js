@@ -155,11 +155,11 @@ test('onFailedAttempt can return a promise to add a delay', async t => {
 
 	await pRetry(
 		async () => {
-			if (called) {
+			if (isCalled) {
 				return fixture;
 			}
 
-			called = true;
+			isCalled = true;
 
 			throw fixtureError;
 		},
@@ -178,7 +178,9 @@ test('onFailedAttempt can throw, causing all retries to be aborted', async t => 
 	const error = new Error('thrown from onFailedAttempt');
 
 	try {
-		await pRetry(() => Promise.reject(fixtureError), {
+		await pRetry(async () => {
+			throw fixtureError;
+		}, {
 			onFailedAttempt: () => {
 				throw error;
 			}
