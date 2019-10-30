@@ -151,7 +151,7 @@ test('onFailedAttempt is called before last rejection', async t => {
 test('onFailedAttempt can return a promise to add a delay', async t => {
 	const waitFor = 1000;
 	const start = Date.now();
-	let called;
+	let isCalled;
 
 	await pRetry(
 		async () => {
@@ -161,7 +161,7 @@ test('onFailedAttempt can return a promise to add a delay', async t => {
 
 			called = true;
 
-			return Promise.reject(fixtureError);
+			throw fixtureError;
 		},
 		{
 			onFailedAttempt: async () => {
