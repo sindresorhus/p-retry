@@ -66,8 +66,8 @@ const run = async () => {
 
 ```js
 onFailedAttempt: async (error) => {
-	console.log('waiting for 1s before retrying');
-	await delay(1000)
+	console.log('Waiting for 1 second before retrying');
+	await delay(1000);
 },
 ```
 
