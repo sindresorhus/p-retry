@@ -21,6 +21,17 @@ declare namespace pRetry {
 	interface Options extends OperationOptions {
 		/**
 		Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
+
+		`onFailedAttempt` can return a promise to enable introducing a retry [delay](https://www.npmjs.com/package/delay):
+
+		```js
+		onFailedAttempt: async (error) => {
+			console.log('Waiting for 1 second before retrying');
+			await delay(1000);
+		},
+		```
+
+		If `onFailedAttempt` throws, all retries will be aborted and the original promise will reject with the thrown error.
 		*/
 		readonly onFailedAttempt?: (error: FailedAttemptError) => void;
 	}

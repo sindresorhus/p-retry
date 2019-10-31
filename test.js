@@ -148,6 +148,48 @@ test('onFailedAttempt is called before last rejection', async t => {
 	t.is(j, 4);
 });
 
+test('onFailedAttempt can return a promise to add a delay', async t => {
+	const waitFor = 1000;
+	const start = Date.now();
+	let isCalled;
+
+	await pRetry(
+		async () => {
+			if (isCalled) {
+				return fixture;
+			}
+
+			isCalled = true;
+
+			throw fixtureError;
+		},
+		{
+			onFailedAttempt: async () => {
+				await delay(waitFor);
+			}
+		},
+	);
+
+	t.true(Date.now() > start + waitFor);
+});
+
+test('onFailedAttempt can throw, causing all retries to be aborted', async t => {
+	t.plan(1);
+	const error = new Error('thrown from onFailedAttempt');
+
+	try {
+		await pRetry(async () => {
+			throw fixtureError;
+		}, {
+			onFailedAttempt: () => {
+				throw error;
+			}
+		});
+	} catch (error2) {
+		t.is(error2, error);
+	}
+});
+
 test('throws useful error message when non-error is thrown', async t => {
 	await t.throwsAsync(pRetry(() => {
 		throw 'foo'; // eslint-disable-line no-throw-literal
