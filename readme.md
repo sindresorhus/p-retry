@@ -34,7 +34,31 @@ const run = async () => {
 })();
 ```
 
-With the `onFailedAttempt` option:
+## API
+
+### pRetry(input, options?)
+
+Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the maximum number of retries is reached. It then rejects with the last rejection reason.
+
+It doesn't retry on `TypeError` as that's a user error.
+
+#### input
+
+Type: `Function`
+
+Receives the current attempt number as the first argument and is expected to return a `Promise` or any value.
+
+#### options
+
+Type: `object`
+
+Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
+
+##### onFailedAttempt(error)
+
+Type: `Function`
+
+Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
 
 ```js
 const run = async () => {
@@ -62,44 +86,28 @@ const run = async () => {
 })();
 ```
 
-## API
-
-### pRetry(input, [options])
-
-Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the maximum number of retries is reached. It then rejects with the last rejection reason.
-
-It doesn't retry on `TypeError` as that's a user error.
-
-#### input
-
-Type: `Function`
-
-Receives the current attempt number as the first argument and is expected to return a `Promise` or any value.
-
-#### options
-
-Type: `Object`
-
-Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
-
-##### onFailedAttempt(error)
-
-Type: `Function`
-
-Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
-
-`onFailedAttempt` can return a promise to enable introducing a retry [delay](https://www.npmjs.com/package/delay):
+The `onFailedAttempt` function can return a promise. For example, to add a [delay](https://github.com/sindresorhus/delay):
 
 ```js
-onFailedAttempt: async (error) => {
-	console.log('Waiting for 1 second before retrying');
-	await delay(1000);
-},
+const pRetry = require('p-retry');
+const delay = require('delay');
+
+const run = async () => { ... };
+
+(async () => {
+	const result = await pRetry(run, {
+		onFailedAttempt: async error => {
+			console.log('Waiting for 1 second before retrying');
+			await delay(1000);
+		}
+	});
+})();
 ```
 
-If `onFailedAttempt` throws, all retries will be aborted and the original promise will reject with the thrown error.
+If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
-### pRetry.AbortError(message|error)
+### pRetry.AbortError(message)
+### pRetry.AbortError(error)
 
 Abort retrying and reject the promise.
 
@@ -141,8 +149,3 @@ const run = async emoji => {
 
 - [p-timeout](https://github.com/sindresorhus/p-timeout) - Timeout a promise after a specified amount of time
 - [More…](https://github.com/sindresorhus/promise-fun)
-
-
-## License
-
-MIT © [Sindre Sorhus](https://sindresorhus.com)

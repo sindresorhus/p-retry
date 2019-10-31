@@ -97,7 +97,7 @@ test('onFailedAttempt is called expected number of times', async t => {
 				}
 			},
 			retries: r
-		},
+		}
 	);
 
 	t.is(i, 3);
@@ -141,7 +141,7 @@ test('onFailedAttempt is called before last rejection', async t => {
 				}
 			},
 			retries: r
-		},
+		}
 	), {is: fixtureError});
 
 	t.is(i, 4);
@@ -167,7 +167,7 @@ test('onFailedAttempt can return a promise to add a delay', async t => {
 			onFailedAttempt: async () => {
 				await delay(waitFor);
 			}
-		},
+		}
 	);
 
 	t.true(Date.now() > start + waitFor);
@@ -185,8 +185,8 @@ test('onFailedAttempt can throw, causing all retries to be aborted', async t => 
 				throw error;
 			}
 		});
-	} catch (error2) {
-		t.is(error2, error);
+	} catch (error_) {
+		t.is(error_, error);
 	}
 });
 
