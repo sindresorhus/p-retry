@@ -4,13 +4,11 @@
 
 It does exponential backoff and supports custom retry strategies for failed operations.
 
-
 ## Install
 
 ```
 $ npm install p-retry
 ```
-
 
 ## Usage
 
@@ -86,19 +84,18 @@ const run = async () => {
 })();
 ```
 
-The `onFailedAttempt` function can return a promise. For example, to add a [delay](https://github.com/sindresorhus/delay):
+The `onFailedAttempt` function can return a promise. For example, you can do some async logging:
 
 ```js
 const pRetry = require('p-retry');
-const delay = require('delay');
+const logger = require('./some-logger);
 
-const run = async () => { ... };
+const run = async () => { … };
 
 (async () => {
 	const result = await pRetry(run, {
 		onFailedAttempt: async error => {
-			console.log('Waiting for 1 second before retrying');
-			await delay(1000);
+			await logger.log(error);
 		}
 	});
 })();
@@ -123,7 +120,6 @@ Type: `Error`
 
 Custom error.
 
-
 ## Tip
 
 You can pass arguments to the function being retried by wrapping it in an inline arrow function:
@@ -143,7 +139,6 @@ const run = async emoji => {
 	await pRetry(() => run('🦄'), {retries: 5});
 })();
 ```
-
 
 ## Related
 
