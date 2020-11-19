@@ -49,8 +49,6 @@ test('no retry on TypeError', async t => {
 });
 
 test('retry on TypeError - failed to fetch', async t => {
-	t.plan(2);
-
 	const typeErrorFixture = new TypeError('Failed to fetch');
 	let i = 0;
 
