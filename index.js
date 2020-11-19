@@ -48,7 +48,7 @@ const pRetry = (input, options) => new Promise((resolve, reject) => {
 			if (error instanceof AbortError) {
 				operation.stop();
 				reject(error.originalError);
-			} else if (error instanceof TypeError) {
+			} else if (error instanceof TypeError && error.message !== 'Failed to fetch') {
 				operation.stop();
 				reject(error);
 			} else {

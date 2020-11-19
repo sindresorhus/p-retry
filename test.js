@@ -48,6 +48,22 @@ test('no retry on TypeError', async t => {
 	t.is(i, 1);
 });
 
+test('retry on TypeError - failed to fetch', async t => {
+	t.plan(2);
+
+	const typeErrorFixture = new TypeError('Failed to fetch');
+	let i = 0;
+
+	const ret = await pRetry(async attemptNumber => {
+		await delay(40);
+		i++;
+		return attemptNumber === 3 ? fixture : Promise.reject(typeErrorFixture);
+	});
+
+	t.is(ret, fixture);
+	t.is(i, 3);
+});
+
 test('AbortError - string', t => {
 	const error = new pRetry.AbortError('fixture').originalError;
 	t.is(error.constructor.name, 'Error');

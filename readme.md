@@ -38,7 +38,7 @@ const run = async () => {
 
 Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the maximum number of retries is reached. It then rejects with the last rejection reason.
 
-It doesn't retry on `TypeError` as that's a user error.
+It doesn't retry on `TypeError` as that's a user error. The only exclusion is fetchApi's 'Failed to fetch' error which can be a network error. See [the docs](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch), and [this issue](https://github.com/whatwg/fetch/issues/526)
 
 #### input
 
