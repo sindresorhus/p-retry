@@ -1,4 +1,4 @@
-# p-retry [![Build Status](https://travis-ci.org/sindresorhus/p-retry.svg?branch=master)](https://travis-ci.org/sindresorhus/p-retry)
+# p-retry
 
 > Retry a promise-returning or async function
 
