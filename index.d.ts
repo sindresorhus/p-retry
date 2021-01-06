@@ -53,6 +53,7 @@ declare const pRetry: {
 	Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the max retries are reached, it then rejects with the last rejection reason.
 
 	It doesn't retry on `TypeError` as that's a user error.
+	The only exclusion is fetchApi's 'Failed to fetch' error which can be a network error. See [the docs](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch), and [this issue](https://github.com/whatwg/fetch/issues/526)
 
 	@param input - Receives the number of attempts as the first argument and is expected to return a `Promise` or any value.
 	@param options - Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
