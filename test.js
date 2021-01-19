@@ -50,16 +50,16 @@ test('no retry on TypeError', async t => {
 
 test('retry on TypeError - failed to fetch', async t => {
 	const typeErrorFixture = new TypeError('Failed to fetch');
-	let i = 0;
+	let index = 0;
 
-	const ret = await pRetry(async attemptNumber => {
+	const returnValue = await pRetry(async attemptNumber => {
 		await delay(40);
-		i++;
+		index++;
 		return attemptNumber === 3 ? fixture : Promise.reject(typeErrorFixture);
 	});
 
-	t.is(ret, fixture);
-	t.is(i, 3);
+	t.is(returnValue, fixture);
+	t.is(index, 3);
 });
 
 test('AbortError - string', t => {
