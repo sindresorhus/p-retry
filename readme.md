@@ -63,7 +63,7 @@ Callback invoked on each retry. Receives the error thrown by `input` as the firs
 const run = async () => {
 	const response = await fetch('https://sindresorhus.com/unicorn');
 
-	if (response.status !== 200) {
+	if (!response.ok) {
 		throw new Error(response.statusText);
 	}
 
