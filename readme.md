@@ -39,7 +39,8 @@ const run = async () => {
 Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the maximum number of retries is reached. It then rejects with the last rejection reason.
 
 
-It doesn't retry on `TypeError` as that's a user error. The only exclusion to this logic is when `TypeError` is thrown by `fetch`'s API with the message 'Failed to fetch', [which indicates that a request was not successful due to a network error](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#Checking_that_the_fetch_was_successful). However, beware that `fetch` may throw `TypeError` with different error messages on different platforms for similar situations. See [whatwg/fetch#526 (comment)](https://github.com/whatwg/fetch/issues/526#issuecomment-554604080)."  
+Does not retry on most `TypeErrors`, with the exception of network errors. This is done on a best case basis as different browsers have different [messages](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#Checking_that_the_fetch_was_successful) to indicate this. See [whatwg/fetch#526 (comment)](https://github.com/whatwg/fetch/issues/526#issuecomment-554604080)
+
 
 #### input
 
@@ -63,7 +64,7 @@ Callback invoked on each retry. Receives the error thrown by `input` as the firs
 const run = async () => {
 	const response = await fetch('https://sindresorhus.com/unicorn');
 
-	if (response.status !== 200) {
+	if (!response.ok) {
 		throw new Error(response.statusText);
 	}
 
