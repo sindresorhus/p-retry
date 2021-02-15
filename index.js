@@ -1,6 +1,12 @@
 'use strict';
 const retry = require('retry');
 
+const networkErrorMsgs = [
+	'Failed to fetch', // Chrome
+	'NetworkError when attempting to fetch resource', // Firefox
+	'The Internet connection appears to be offline' // Safari
+];
+
 class AbortError extends Error {
 	constructor(message) {
 		super();
@@ -27,6 +33,8 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 	return error;
 };
 
+const isNetworkError = errorMessage => networkErrorMsgs.includes(errorMessage);
+
 const pRetry = (input, options) => new Promise((resolve, reject) => {
 	options = {
 		onFailedAttempt: () => {},
@@ -48,7 +56,7 @@ const pRetry = (input, options) => new Promise((resolve, reject) => {
 			if (error instanceof AbortError) {
 				operation.stop();
 				reject(error.originalError);
-			} else if (error instanceof TypeError && error.message !== 'Failed to fetch') {
+			} else if (error instanceof TypeError && !isNetworkError(error.message)) {
 				operation.stop();
 				reject(error);
 			} else {
