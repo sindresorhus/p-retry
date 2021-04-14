@@ -90,7 +90,7 @@ The `onFailedAttempt` function can return a promise. For example, you can do som
 
 ```js
 const pRetry = require('p-retry');
-const logger = require('./some-logger);
+const logger = require('./some-logger');
 
 const run = async () => { … };
 
