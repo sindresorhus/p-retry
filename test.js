@@ -62,6 +62,20 @@ test('retry on TypeError - failed to fetch', async t => {
 	t.is(index, 3);
 });
 
+test('retry on TypeError - NetworkError when attempting to fetch resource.', async t => {
+	const typeErrorFixture = new TypeError('NetworkError when attempting to fetch resource.');
+	let index = 0;
+
+	const returnValue = await pRetry(async attemptNumber => {
+		await delay(40);
+		index++;
+		return attemptNumber === 3 ? fixture : Promise.reject(typeErrorFixture);
+	});
+
+	t.is(returnValue, fixture);
+	t.is(index, 3);
+});
+
 test('AbortError - string', t => {
 	const error = new pRetry.AbortError('fixture').originalError;
 	t.is(error.constructor.name, 'Error');
