@@ -3,8 +3,8 @@ const retry = require('retry');
 
 const networkErrorMsgs = [
 	'Failed to fetch', // Chrome
-	'NetworkError when attempting to fetch resource', // Firefox
-	'The Internet connection appears to be offline', // Safari
+	'NetworkError when attempting to fetch resource.', // Firefox
+	'The Internet connection appears to be offline.', // Safari
 	'Network request failed' // `cross-fetch`
 ];
 
