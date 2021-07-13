@@ -76,6 +76,20 @@ test('retry on TypeError - NetworkError when attempting to fetch resource.', asy
 	t.is(index, 3);
 });
 
+test('retry on TypeError - The Internet connection appears to be offline.', async t => {
+	const typeErrorFixture = new TypeError('The Internet connection appears to be offline.');
+	let index = 0;
+
+	const returnValue = await pRetry(async attemptNumber => {
+		await delay(40);
+		index++;
+		return attemptNumber === 3 ? fixture : Promise.reject(typeErrorFixture);
+	});
+
+	t.is(returnValue, fixture);
+	t.is(index, 3);
+});
+
 test('AbortError - string', t => {
 	const error = new pRetry.AbortError('fixture').originalError;
 	t.is(error.constructor.name, 'Error');
