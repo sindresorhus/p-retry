@@ -36,10 +36,16 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 
 const isNetworkError = errorMessage => networkErrorMsgs.includes(errorMessage);
 
+const decorateErrorWithNetwork = error => {
+	error.isNetworkError = isNetworkError(error.message);
+	return error;
+};
+
 const pRetry = (input, options) => new Promise((resolve, reject) => {
 	options = {
 		onFailedAttempt: () => {},
 		retries: 10,
+		shouldBeRetried: error => !(error instanceof TypeError) || error.isNetworkError,
 		...options
 	};
 
@@ -57,7 +63,13 @@ const pRetry = (input, options) => new Promise((resolve, reject) => {
 			if (error instanceof AbortError) {
 				operation.stop();
 				reject(error.originalError);
-			} else if (error instanceof TypeError && !isNetworkError(error.message)) {
+				return;
+			}
+
+			decorateErrorWithNetwork(error);
+			const shouldAbort = !options.shouldBeRetried(error);
+
+			if (shouldAbort) {
 				operation.stop();
 				reject(error);
 			} else {
