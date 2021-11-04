@@ -8,7 +8,7 @@ expectType<Promise<number>>(
 	}),
 );
 expectType<Promise<void>>(
-	pRetry(() => undefined, {
+	pRetry(() => {}, { // eslint-disable-line @typescript-eslint/no-empty-function
 		onFailedAttempt: error => {
 			expectType<FailedAttemptError>(error);
 			expectType<number>(error.attemptNumber);
