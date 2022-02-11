@@ -99,6 +99,27 @@ const result = await pRetry(run, {
 
 If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
+##### signal
+
+Type: `AbortSignal`
+
+An AbortSignal object. Useful to remotely abort an ongoing operation.
+
+```js
+import pRetry from 'p-retry';
+
+const run = async () => { ... };
+const controller = new AbortController();
+
+pRetry(run, {signal: controller.signal}).catch(error => {
+	console.log(error.message); // "Operation aborted by AbortSignal."
+});
+
+controller.abort();
+```
+
+Note: the `AbortController` class is only available on Node 15 or above.
+
 ### AbortError(message)
 ### AbortError(error)
 

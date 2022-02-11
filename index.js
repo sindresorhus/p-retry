@@ -76,5 +76,12 @@ export default async function pRetry(input, options) {
 				}
 			}
 		});
+
+		if (options.signal && !options.signal.aborted) {
+			options.signal.addEventListener('abort', () => {
+				operation.stop();
+				reject(new Error('Operation aborted by AbortSignal.'));
+			}, {once: true});
+		}
 	});
 }

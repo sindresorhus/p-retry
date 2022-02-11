@@ -211,3 +211,26 @@ test('throws useful error message when non-error is thrown', async t => {
 		message: /Non-error/,
 	});
 });
+
+test('aborts with an AbortSignal', async t => {
+	t.plan(2);
+
+	let index = 0;
+	const controller = new AbortController();
+
+	await t.throwsAsync(pRetry(async attemptNumber => {
+		await delay(40);
+		index++;
+		if (attemptNumber === 3) {
+			controller.abort();
+		}
+
+		return Promise.reject(fixtureError);
+	}, {
+		signal: controller.signal,
+	}), {
+		message: 'Operation aborted by AbortSignal.',
+	});
+
+	t.is(index, 3);
+});
