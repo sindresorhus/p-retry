@@ -44,6 +44,8 @@ export interface Options extends OperationOptions {
 	/**
 	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
 
+	When `AbortController.abort(reason)` is called, the promise will be rejected with `reason` as the error message.
+
 	*Requires Node.js 16 or later.*
 
 	```
