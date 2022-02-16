@@ -53,7 +53,7 @@ export interface Options extends OperationOptions {
 	const controller = new AbortController();
 
 	cancelButton.addEventListener('click', () => {
-		contoller.abort('User clicked cancel button');
+		controller.abort('User clicked cancel button');
 	});
 
 	try {
