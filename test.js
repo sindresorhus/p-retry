@@ -225,7 +225,7 @@ test('aborts with an AbortSignal', async t => {
 			controller.abort();
 		}
 
-		return Promise.reject(fixtureError);
+		throw fixtureError;
 	}, {
 		signal: controller.signal,
 	}), {
