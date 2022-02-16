@@ -42,22 +42,26 @@ export interface Options extends OperationOptions {
 	readonly onFailedAttempt?: (error: FailedAttemptError) => void | Promise<void>;
 
 	/**
-	An AbortSignal object. Useful to remotely abort an ongoing operation.
+	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
+
+	*Requires Node.js 16 or later.*
 
 	```
 	import pRetry from 'p-retry';
 
-	const run = async () => { ... };
+	const run = async () => { … };
 	const controller = new AbortController();
 
-	pRetry(run, {signal: controller.signal}).catch(error => {
-		console.log(error.message); // "Operation aborted by AbortSignal."
+	cancelButton.addEventListener('click', () => {
+		contoller.abort('User clicked cancel button');
 	});
 
-	controller.abort();
+	try {
+		await pRetry(run, {signal: controller.signal});
+	} catch (error) {
+		console.log(error.message); // "User clicked cancel button"
+	}
 	```
-
-	Note: the `AbortController` class is only available on Node 15 or above.
 	*/
 	readonly signal?: AbortSignal;
 }
