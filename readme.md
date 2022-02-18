@@ -122,7 +122,8 @@ cancelButton.addEventListener('click', () => {
 try {
 	await pRetry(run, {signal: controller.signal});
 } catch (error) {
-	console.log(error.message); // "User clicked cancel button"
+	console.log(error.message);
+	//=> 'User clicked cancel button'
 }
 ```
 
