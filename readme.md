@@ -13,7 +13,7 @@ npm install p-retry
 ## Usage
 
 ```js
-import pRetry from 'p-retry';
+import pRetry, { AbortError } from 'p-retry';
 import fetch from 'node-fetch';
 
 const run = async () => {
@@ -21,7 +21,7 @@ const run = async () => {
 
 	// Abort retrying if the resource doesn't exist
 	if (response.status === 404) {
-		throw new pRetry.AbortError(response.statusText);
+		throw new AbortError(response.statusText);
 	}
 
 	return response.blob();
