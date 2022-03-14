@@ -212,26 +212,28 @@ test('throws useful error message when non-error is thrown', async t => {
 	});
 });
 
-test('aborts with an AbortSignal', async t => {
-	t.plan(2);
+if (globalThis.AbortController !== undefined) {
+	test('aborts with an AbortSignal', async t => {
+		t.plan(2);
 
-	let index = 0;
-	const controller = new AbortController();
+		let index = 0;
+		const controller = new AbortController();
 
-	await t.throwsAsync(pRetry(async attemptNumber => {
-		await delay(40);
-		index++;
-		if (attemptNumber === 3) {
-			controller.abort();
-		}
+		await t.throwsAsync(pRetry(async attemptNumber => {
+			await delay(40);
+			index++;
+			if (attemptNumber === 3) {
+				controller.abort();
+			}
 
-		throw fixtureError;
-	}, {
-		signal: controller.signal,
-	}), {
-		instanceOf: DOMException,
-		message: 'This operation was aborted',
+			throw fixtureError;
+		}, {
+			signal: controller.signal,
+		}), {
+			instanceOf: DOMException,
+			message: 'This operation was aborted',
+		});
+
+		t.is(index, 3);
 	});
-
-	t.is(index, 3);
-});
+}
