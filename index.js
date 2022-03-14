@@ -80,8 +80,11 @@ export default async function pRetry(input, options) {
 		if (options.signal && !options.signal.aborted) {
 			options.signal.addEventListener('abort', () => {
 				operation.stop();
-				reject(new Error(options.signal.reason ?? 'AbortError: This operation was aborted'));
-			}, {once: true});
+				const reason = options.signal.reason ?? new DOMException('The operation was aborted.');
+				reject(reason instanceof Error ? reason : new DOMException(reason));
+			}, {
+				once: true,
+			});
 		}
 	});
 }

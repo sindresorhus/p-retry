@@ -222,15 +222,15 @@ test('aborts with an AbortSignal', async t => {
 		await delay(40);
 		index++;
 		if (attemptNumber === 3) {
-			controller.abort('reason');
+			controller.abort();
 		}
 
 		throw fixtureError;
 	}, {
 		signal: controller.signal,
 	}), {
-		instanceOf: Error,
-		message: 'reason',
+		instanceOf: DOMException,
+		message: 'This operation was aborted',
 	});
 
 	t.is(index, 3);
