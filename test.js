@@ -236,4 +236,27 @@ if (globalThis.AbortController !== undefined) {
 
 		t.is(index, 3);
 	});
+
+	test('preserves the abort reason', async t => {
+		t.plan(2);
+
+		let index = 0;
+		const controller = new AbortController();
+
+		await t.throwsAsync(pRetry(async attemptNumber => {
+			await delay(40);
+			index++;
+			if (attemptNumber === 3) {
+				controller.abort(fixtureError);
+			}
+
+			throw fixtureError;
+		}, {
+			signal: controller.signal,
+		}), {
+			is: fixtureError,
+		});
+
+		t.is(index, 3);
+	});
 }
