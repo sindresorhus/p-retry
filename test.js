@@ -230,8 +230,8 @@ if (globalThis.AbortController !== undefined) {
 		}, {
 			signal: controller.signal,
 		}), {
-			instanceOf: DOMException,
-			message: 'This operation was aborted',
+			instanceOf: globalThis.DOMException === undefined ? Error : DOMException,
+			message: 'The operation was aborted.',
 		});
 
 		t.is(index, 3);

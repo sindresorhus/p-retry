@@ -35,6 +35,10 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 
 const isNetworkError = errorMessage => networkErrorMsgs.has(errorMessage);
 
+const getDOMException = errorMessage => globalThis.DOMException === undefined
+	? new Error(errorMessage)
+	: new DOMException(errorMessage);
+
 export default async function pRetry(input, options) {
 	return new Promise((resolve, reject) => {
 		options = {
@@ -80,8 +84,10 @@ export default async function pRetry(input, options) {
 		if (options.signal && !options.signal.aborted) {
 			options.signal.addEventListener('abort', () => {
 				operation.stop();
-				const reason = options.signal.reason ?? new DOMException('The operation was aborted.');
-				reject(reason instanceof Error ? reason : new DOMException(reason));
+				const reason = options.signal.reason === undefined
+					? getDOMException('The operation was aborted.')
+					: options.signal.reason;
+				reject(reason instanceof Error ? reason : getDOMException(reason));
 			}, {
 				once: true,
 			});
