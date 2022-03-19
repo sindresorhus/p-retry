@@ -42,7 +42,7 @@ const getDOMException = errorMessage => globalThis.DOMException === undefined
 export default async function pRetry(input, options) {
 	return new Promise((resolve, reject) => {
 		options = {
-			onFailedAttempt: () => {},
+			onFailedAttempt() {},
 			retries: 10,
 			...options,
 		};

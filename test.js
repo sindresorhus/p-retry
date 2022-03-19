@@ -88,7 +88,7 @@ test('onFailedAttempt is called expected number of times', async t => {
 			return attemptNumber === 3 ? fixture : Promise.reject(fixtureError);
 		},
 		{
-			onFailedAttempt: error => {
+			onFailedAttempt(error) {
 				t.is(error, fixtureError);
 				t.is(error.attemptNumber, ++attemptNumber);
 
@@ -129,10 +129,10 @@ test('onFailedAttempt is called before last rejection', async t => {
 		async () => {
 			await delay(40);
 			i++;
-			return Promise.reject(fixtureError);
+			throw fixtureError;
 		},
 		{
-			onFailedAttempt: error => {
+			onFailedAttempt(error) {
 				t.is(error, fixtureError);
 				t.is(error.attemptNumber, ++j);
 
@@ -178,7 +178,7 @@ test('onFailedAttempt can return a promise to add a delay', async t => {
 			throw fixtureError;
 		},
 		{
-			onFailedAttempt: async () => {
+			async onFailedAttempt() {
 				await delay(waitFor);
 			},
 		},
@@ -195,7 +195,7 @@ test('onFailedAttempt can throw, causing all retries to be aborted', async t => 
 		await pRetry(async () => {
 			throw fixtureError;
 		}, {
-			onFailedAttempt: () => {
+			onFailedAttempt() {
 				throw error;
 			},
 		});

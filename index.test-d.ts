@@ -4,12 +4,12 @@ import pRetry, {AbortError, FailedAttemptError} from './index.js';
 expectType<Promise<number>>(
 	pRetry(async count => {
 		expectType<number>(count);
-		return Promise.resolve(1);
+		return 1;
 	}),
 );
 expectType<Promise<void>>(
 	pRetry(() => {}, { // eslint-disable-line @typescript-eslint/no-empty-function
-		onFailedAttempt: error => {
+		onFailedAttempt(error) {
 			expectType<FailedAttemptError>(error);
 			expectType<number>(error.attemptNumber);
 			expectType<number>(error.retriesLeft);
