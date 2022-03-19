@@ -40,6 +40,33 @@ export interface Options extends OperationOptions {
 	If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
 	readonly onFailedAttempt?: (error: FailedAttemptError) => void | Promise<void>;
+
+	/**
+	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
+
+	When `AbortController.abort(reason)` is called, the promise will be rejected with `reason` as the error message.
+
+	*Requires Node.js 16 or later.*
+
+	```
+	import pRetry from 'p-retry';
+
+	const run = async () => { … };
+	const controller = new AbortController();
+
+	cancelButton.addEventListener('click', () => {
+		controller.abort('User clicked cancel button');
+	});
+
+	try {
+		await pRetry(run, {signal: controller.signal});
+	} catch (error) {
+		console.log(error.message);
+		//=> 'User clicked cancel button'
+	}
+	```
+	*/
+	readonly signal?: AbortSignal;
 }
 
 /**

@@ -99,6 +99,34 @@ const result = await pRetry(run, {
 
 If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
+##### signal
+
+Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal)
+
+You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
+
+When `AbortController.abort(reason)` is called, the promise will be rejected with `reason` if it's an instance of `Error`, or a `DOMException` with `reason` as its message otherwise. If no reason is provided, the promise will reject with a `DOMException`.
+
+*Requires Node.js 16 or later.*
+
+```js
+import pRetry from 'p-retry';
+
+const run = async () => { … };
+const controller = new AbortController();
+
+cancelButton.addEventListener('click', () => {
+	controller.abort('User clicked cancel button');
+});
+
+try {
+	await pRetry(run, {signal: controller.signal});
+} catch (error) {
+	console.log(error.message);
+	//=> 'User clicked cancel button'
+}
+```
+
 ### AbortError(message)
 ### AbortError(error)
 

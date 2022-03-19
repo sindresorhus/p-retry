@@ -211,3 +211,52 @@ test('throws useful error message when non-error is thrown', async t => {
 		message: /Non-error/,
 	});
 });
+
+if (globalThis.AbortController !== undefined) {
+	test('aborts with an AbortSignal', async t => {
+		t.plan(2);
+
+		let index = 0;
+		const controller = new AbortController();
+
+		await t.throwsAsync(pRetry(async attemptNumber => {
+			await delay(40);
+			index++;
+			if (attemptNumber === 3) {
+				controller.abort();
+			}
+
+			throw fixtureError;
+		}, {
+			signal: controller.signal,
+		}), {
+			instanceOf: globalThis.DOMException === undefined ? Error : DOMException,
+			message: 'The operation was aborted.',
+		});
+
+		t.is(index, 3);
+	});
+
+	test('preserves the abort reason', async t => {
+		t.plan(2);
+
+		let index = 0;
+		const controller = new AbortController();
+
+		await t.throwsAsync(pRetry(async attemptNumber => {
+			await delay(40);
+			index++;
+			if (attemptNumber === 3) {
+				controller.abort(fixtureError);
+			}
+
+			throw fixtureError;
+		}, {
+			signal: controller.signal,
+		}), {
+			is: fixtureError,
+		});
+
+		t.is(index, 3);
+	});
+}
