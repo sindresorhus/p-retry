@@ -39,7 +39,7 @@
 		"bluebird"
 	],
 	"dependencies": {
-		"@types/retry": "^0.12.0",
+		"@types/retry": "0.12.0",
 		"retry": "^0.13.1"
 	},
 	"devDependencies": {
