@@ -1,6 +1,6 @@
 import test from 'ava';
 import delay from 'delay';
-import pRetry, {AbortError} from './index.js';
+import pRetry, {AbortError, shouldRetry} from './index.js';
 
 const fixture = Symbol('fixture');
 const fixtureError = new Error('fixture');
@@ -205,11 +205,60 @@ test('onFailedAttempt can throw, causing all retries to be aborted', async t => 
 });
 
 test('throws useful error message when non-error is thrown', async t => {
-	await t.throwsAsync(pRetry(() => {
-		throw 'foo'; // eslint-disable-line no-throw-literal
-	}), {
-		message: /Non-error/,
-	});
+	await t.throwsAsync(
+		pRetry(() => {
+			throw 'foo'; // eslint-disable-line no-throw-literal
+		}),
+		{
+			message: /Non-error/,
+		},
+	);
+});
+
+test('can override shouldRetry', async t => {
+	t.plan(2);
+
+	const typeErrorFixture = new TypeError('type-error-fixture');
+
+	let index = 0;
+
+	const returnValue = await pRetry(
+		async attemptNumber => {
+			await delay(40);
+			index++;
+			return attemptNumber === 3 ? fixture : Promise.reject(typeErrorFixture);
+		},
+		{shouldRetry: () => true},
+	);
+
+	t.is(returnValue, fixture);
+	t.is(index, 3);
+});
+
+test('can override shouldRetry and use original shouldRetry', async t => {
+	t.plan(4);
+
+	const typeErrorFixture = new TypeError('type-error-fixture');
+
+	let index = 0;
+
+	const returnValue = await pRetry(
+		async attemptNumber => {
+			await delay(40);
+			index++;
+			return attemptNumber === 3 ? fixture : Promise.reject(typeErrorFixture);
+		},
+		{
+			shouldRetry(error) {
+				const originalShouldRetryResult = shouldRetry(error);
+				t.is(originalShouldRetryResult, false);
+				return originalShouldRetryResult || error.message.includes('fixture');
+			},
+		},
+	);
+
+	t.is(returnValue, fixture);
+	t.is(index, 3);
 });
 
 if (globalThis.AbortController !== undefined) {

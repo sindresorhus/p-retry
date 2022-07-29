@@ -35,15 +35,20 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 
 const isNetworkError = errorMessage => networkErrorMsgs.has(errorMessage);
 
-const getDOMException = errorMessage => globalThis.DOMException === undefined
-	? new Error(errorMessage)
-	: new DOMException(errorMessage);
+const getDOMException = errorMessage =>
+	globalThis.DOMException === undefined
+		? new Error(errorMessage)
+		: new DOMException(errorMessage);
+
+export const shouldRetry = error =>
+	error instanceof TypeError ? isNetworkError(error.message) : true;
 
 export default async function pRetry(input, options) {
 	return new Promise((resolve, reject) => {
 		options = {
 			onFailedAttempt() {},
 			retries: 10,
+			shouldRetry,
 			...options,
 		};
 
@@ -60,13 +65,15 @@ export default async function pRetry(input, options) {
 
 				if (error instanceof AbortError) {
 					operation.stop();
-					reject(error.originalError);
-				} else if (error instanceof TypeError && !isNetworkError(error.message)) {
+					return reject(error.originalError);
+				}
+
+				decorateErrorWithCounts(error, attemptNumber, options);
+				const shouldAbort = !options.shouldRetry(error);
+				if (shouldAbort) {
 					operation.stop();
 					reject(error);
 				} else {
-					decorateErrorWithCounts(error, attemptNumber, options);
-
 					try {
 						await options.onFailedAttempt(error);
 					} catch (error) {

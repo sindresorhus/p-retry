@@ -17,6 +17,8 @@ export interface FailedAttemptError extends Error {
 	readonly retriesLeft: number;
 }
 
+export function shouldRetry(error: FailedAttemptError): boolean;
+
 export interface Options extends OperationOptions {
 	/**
 	Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
@@ -67,6 +69,27 @@ export interface Options extends OperationOptions {
 	```
 	*/
 	readonly signal?: AbortSignal;
+
+	/**
+	Callback invoked on to determine whether a retry should occur. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
+
+	`shouldRetry` will not allow AbortError overrides. It allows overriding the default retry logic (aborting on TypeError's that aren't network errors) for all other errors.
+
+	```
+	import pRetry from 'p-retry';
+
+	const run = async () => { ... };
+
+	const result = await pRetry(run, {
+		shouldRetry: error => {
+			return error.message.includes('allow retry')
+		}
+	});
+	```
+
+	If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
+	*/
+	readonly shouldRetry?: (error: FailedAttemptError) => boolean;
 }
 
 /**
