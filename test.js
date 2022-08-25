@@ -251,7 +251,7 @@ test('can override shouldRetry and use original shouldRetry', async t => {
 		{
 			shouldRetry(error) {
 				const originalShouldRetryResult = shouldRetry(error);
-				t.is(originalShouldRetryResult, false);
+				t.false(originalShouldRetryResult);
 				return originalShouldRetryResult || error.message.includes('fixture');
 			},
 		},
