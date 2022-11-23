@@ -5,7 +5,8 @@ const networkErrorMsgs = [
 	'Failed to fetch', // Chrome
 	'NetworkError when attempting to fetch resource.', // Firefox
 	'The Internet connection appears to be offline.', // Safari
-	'Network request failed' // `cross-fetch`
+	'Network request failed', // `cross-fetch`
+	'fetch failed', // Undici (Node.js)
 ];
 
 class AbortError extends Error {
