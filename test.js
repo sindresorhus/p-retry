@@ -93,21 +93,30 @@ test('onFailedAttempt is called expected number of times', async t => {
 				t.is(error.attemptNumber, ++attemptNumber);
 
 				switch (index) {
-					case 1:
+					case 1: {
 						t.is(error.retriesLeft, retries);
 						break;
-					case 2:
+					}
+
+					case 2: {
 						t.is(error.retriesLeft, 4);
 						break;
-					case 3:
+					}
+
+					case 3: {
 						t.is(error.retriesLeft, 3);
 						break;
-					case 4:
+					}
+
+					case 4: {
 						t.is(error.retriesLeft, 2);
 						break;
-					default:
+					}
+
+					default: {
 						t.fail('onFailedAttempt was called more than 4 times');
 						break;
+					}
 				}
 			},
 			retries,
@@ -137,21 +146,30 @@ test('onFailedAttempt is called before last rejection', async t => {
 				t.is(error.attemptNumber, ++j);
 
 				switch (i) {
-					case 1:
+					case 1: {
 						t.is(error.retriesLeft, r);
 						break;
-					case 2:
+					}
+
+					case 2: {
 						t.is(error.retriesLeft, 2);
 						break;
-					case 3:
+					}
+
+					case 3: {
 						t.is(error.retriesLeft, 1);
 						break;
-					case 4:
+					}
+
+					case 4: {
 						t.is(error.retriesLeft, 0);
 						break;
-					default:
+					}
+
+					default: {
 						t.fail('onFailedAttempt was called more than 4 times');
 						break;
+					}
 				}
 			},
 			retries: r,
@@ -212,52 +230,50 @@ test('throws useful error message when non-error is thrown', async t => {
 	});
 });
 
-if (globalThis.AbortController !== undefined) {
-	test('aborts with an AbortSignal', async t => {
-		t.plan(2);
+test('aborts with an AbortSignal', async t => {
+	t.plan(2);
 
-		let index = 0;
-		const controller = new AbortController();
+	let index = 0;
+	const controller = new AbortController();
 
-		await t.throwsAsync(pRetry(async attemptNumber => {
-			await delay(40);
-			index++;
-			if (attemptNumber === 3) {
-				controller.abort();
-			}
+	await t.throwsAsync(pRetry(async attemptNumber => {
+		await delay(40);
+		index++;
+		if (attemptNumber === 3) {
+			controller.abort();
+		}
 
-			throw fixtureError;
-		}, {
-			signal: controller.signal,
-		}), {
-			instanceOf: globalThis.DOMException === undefined ? Error : DOMException,
-			/// message: 'The operation was aborted.',
-		});
-
-		t.is(index, 3);
+		throw fixtureError;
+	}, {
+		signal: controller.signal,
+	}), {
+		// TODO: Make this only `instanceOf: DOMException` when targeting Node.js 18.
+		instanceOf: globalThis.DOMException === undefined ? Error : DOMException,
 	});
 
-	test('preserves the abort reason', async t => {
-		t.plan(2);
+	t.is(index, 3);
+});
 
-		let index = 0;
-		const controller = new AbortController();
+test('preserves the abort reason', async t => {
+	t.plan(2);
 
-		await t.throwsAsync(pRetry(async attemptNumber => {
-			await delay(40);
-			index++;
-			if (attemptNumber === 3) {
-				controller.abort(fixtureError);
-				return;
-			}
+	let index = 0;
+	const controller = new AbortController();
 
-			throw fixtureError;
-		}, {
-			signal: controller.signal,
-		}), {
-			is: fixtureError,
-		});
+	await t.throwsAsync(pRetry(async attemptNumber => {
+		await delay(40);
+		index++;
+		if (attemptNumber === 3) {
+			controller.abort(fixtureError);
+			return;
+		}
 
-		t.is(index, 3);
+		throw fixtureError;
+	}, {
+		signal: controller.signal,
+	}), {
+		is: fixtureError,
 	});
-}
+
+	t.is(index, 3);
+});

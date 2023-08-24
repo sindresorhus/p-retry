@@ -13,7 +13,7 @@
 	"type": "module",
 	"exports": "./index.js",
 	"engines": {
-		"node": "^12.20.0 || ^14.13.1 || >=16.0.0"
+		"node": ">=16.17"
 	},
 	"scripts": {
 		"test": "xo && ava && tsd"
@@ -42,13 +42,13 @@
 		"bluebird"
 	],
 	"dependencies": {
-		"@types/retry": "0.12.1",
+		"@types/retry": "0.12.2",
 		"retry": "^0.13.1"
 	},
 	"devDependencies": {
-		"ava": "^4.1.0",
-		"delay": "^5.0.0",
-		"tsd": "^0.19.1",
-		"xo": "^0.48.0"
+		"ava": "^5.3.1",
+		"delay": "^6.0.0",
+		"tsd": "^0.28.1",
+		"xo": "^0.56.0"
 	}
 }

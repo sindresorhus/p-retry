@@ -1,4 +1,4 @@
-import {OperationOptions} from 'retry';
+import {type OperationOptions} from 'retry';
 
 export class AbortError extends Error {
 	readonly name: 'AbortError';
@@ -12,12 +12,12 @@ export class AbortError extends Error {
 	constructor(message: string | Error);
 }
 
-export interface FailedAttemptError extends Error {
+export type FailedAttemptError = {
 	readonly attemptNumber: number;
 	readonly retriesLeft: number;
-}
+} & Error;
 
-export interface Options extends OperationOptions {
+export type Options = {
 	/**
 	Callback invoked on each retry. Receives the error thrown by `input` as the first argument with properties `attemptNumber` and `retriesLeft` which indicate the current attempt number and the number of attempts left, respectively.
 
@@ -44,10 +44,6 @@ export interface Options extends OperationOptions {
 	/**
 	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
 
-	When `AbortController.abort(reason)` is called, the promise will be rejected with `reason` as the error message.
-
-	*Requires Node.js 16 or later.*
-
 	```
 	import pRetry from 'p-retry';
 
@@ -55,7 +51,7 @@ export interface Options extends OperationOptions {
 	const controller = new AbortController();
 
 	cancelButton.addEventListener('click', () => {
-		controller.abort('User clicked cancel button');
+		controller.abort(new Error('User clicked cancel button'));
 	});
 
 	try {
@@ -67,7 +63,7 @@ export interface Options extends OperationOptions {
 	```
 	*/
 	readonly signal?: AbortSignal;
-}
+} & OperationOptions;
 
 /**
 Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the max retries are reached, it then rejects with the last rejection reason.

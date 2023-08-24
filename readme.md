@@ -105,10 +105,6 @@ Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSign
 
 You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
 
-When `AbortController.abort(reason)` is called, the promise will be rejected with `reason` if it's an instance of `Error`, or a `DOMException` with `reason` as its message otherwise. If no reason is provided, the promise will reject with a `DOMException`.
-
-*Requires Node.js 16 or later.*
-
 ```js
 import pRetry from 'p-retry';
 
@@ -116,7 +112,7 @@ const run = async () => { … };
 const controller = new AbortController();
 
 cancelButton.addEventListener('click', () => {
-	controller.abort('User clicked cancel button');
+	controller.abort(new Error('User clicked cancel button'));
 });
 
 try {

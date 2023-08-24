@@ -1,5 +1,5 @@
 import {expectType} from 'tsd';
-import pRetry, {AbortError, FailedAttemptError} from './index.js';
+import pRetry, {AbortError, type FailedAttemptError} from './index.js';
 
 expectType<Promise<number>>(
 	pRetry(async count => {
