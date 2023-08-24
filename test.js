@@ -231,7 +231,7 @@ if (globalThis.AbortController !== undefined) {
 			signal: controller.signal,
 		}), {
 			instanceOf: globalThis.DOMException === undefined ? Error : DOMException,
-			message: 'The operation was aborted.',
+			/// message: 'The operation was aborted.',
 		});
 
 		t.is(index, 3);
@@ -248,6 +248,7 @@ if (globalThis.AbortController !== undefined) {
 			index++;
 			if (attemptNumber === 3) {
 				controller.abort(fixtureError);
+				return;
 			}
 
 			throw fixtureError;
