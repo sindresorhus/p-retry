@@ -1,12 +1,5 @@
 import retry from 'retry';
-
-const networkErrorMsgs = new Set([
-	'Failed to fetch', // Chrome
-	'NetworkError when attempting to fetch resource.', // Firefox
-	'The Internet connection appears to be offline.', // Safari
-	'Network request failed', // `cross-fetch`
-	'fetch failed', // Undici (Node.js)
-]);
+import isNetworkError from 'is-network-error';
 
 export class AbortError extends Error {
 	constructor(message) {
@@ -33,8 +26,6 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 	error.retriesLeft = retriesLeft;
 	return error;
 };
-
-const isNetworkError = errorMessage => networkErrorMsgs.has(errorMessage);
 
 export default async function pRetry(input, options) {
 	return new Promise((resolve, reject) => {
@@ -75,7 +66,7 @@ export default async function pRetry(input, options) {
 						throw error.originalError;
 					}
 
-					if (error instanceof TypeError && !isNetworkError(error.message)) {
+					if (error instanceof TypeError && !isNetworkError(error)) {
 						throw error;
 					}
 

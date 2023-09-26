@@ -43,6 +43,7 @@
 	],
 	"dependencies": {
 		"@types/retry": "0.12.2",
+		"is-network-error": "^1.0.0",
 		"retry": "^0.13.1"
 	},
 	"devDependencies": {
