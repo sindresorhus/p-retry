@@ -277,3 +277,33 @@ test('preserves the abort reason', async t => {
 
 	t.is(index, 3);
 });
+
+test('should retry only when shouldRetry returns true', async t => {
+	t.plan(2);
+
+	const shouldRetryError = new Error('should-retry');
+	const customError = new Error('custom-error');
+
+	let index = 0;
+
+	try {
+		await pRetry(
+			async () => {
+				await delay(40);
+				index++;
+				const error = index < 3 ? shouldRetryError : customError;
+				throw error;
+			},
+			{
+				async shouldRetry(error) {
+					return error.message === shouldRetryError.message;
+				},
+				retries: 10,
+			},
+		);
+	} catch (error) {
+		t.is(error.message, customError.message);
+	}
+
+	t.is(index, 3);
+});
