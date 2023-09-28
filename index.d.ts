@@ -42,6 +42,20 @@ export type Options = {
 	readonly onFailedAttempt?: (error: FailedAttemptError) => void | Promise<void>;
 
 	/**
+	`shouldRetry` is an optional callback function that determines whether a failed attempt should be retried or not. It receives the error thrown by `input` as the first argument.
+
+	Returning true from `shouldRetry` will make `p-retry` attempt to retry the operation, while returning false will abort the retry process and the promise will be rejected with the provided error.
+
+	```
+	const result = await pRetry(run, {
+		shouldRetry: error => !(error instanceof CustomError)
+	});
+	```
+	In the example above, the operation will be retried unless the error is an instance of `CustomError`.
+	*/
+	readonly shouldRetry?: (error: FailedAttemptError) => boolean | Promise<boolean>;
+
+	/**
 	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
 
 	```
