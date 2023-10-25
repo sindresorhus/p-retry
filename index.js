@@ -27,7 +27,7 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 	return error;
 };
 
-const shouldRetry = error => !(error instanceof TypeError) || isNetworkError(error);
+const shouldRetry = () => true;
 
 export default async function pRetry(input, options) {
 	return new Promise((resolve, reject) => {
