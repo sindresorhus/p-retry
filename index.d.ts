@@ -42,17 +42,15 @@ export type Options = {
 	readonly onFailedAttempt?: (error: FailedAttemptError) => void | Promise<void>;
 
 	/**
-	`shouldRetry` is an optional function deciding if a retry should occur based on the error. Returning true triggers a retry, false aborts with the error.
+	Decide if a retry should occur based on the error. Returning true triggers a retry, false aborts with the error.
 
-	The `shouldRetry` function can return a promise.
-
-	@param error - The error thrown by `input`.
+	@param error - The error thrown by the input function.
 
 	@example
 	```
 	import pRetry from 'p-retry';
 
-	const run = async () => { ... };
+	const run = async () => { … };
 
 	const result = await pRetry(run, {
 		shouldRetry: error => !(error instanceof CustomError);
