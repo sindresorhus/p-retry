@@ -99,6 +99,42 @@ const result = await pRetry(run, {
 
 If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
+##### shouldRetry(error)
+
+Type: `Function`
+
+Decide if a retry should occur based on the error. Returning true triggers a retry, false aborts with the error.
+
+```js
+import pRetry from 'p-retry';
+
+const run = async () => {
+	const response = await fetch('https://sindresorhus.com/unicorn');
+
+	if (!response.ok) {
+		throw new Error(response.statusText);
+	}
+
+	return response.json();
+};
+
+const startTime = new Date();
+
+const result = await pRetry(run, {
+	shouldRetry: (error) => {
+		const elapsedTime = new Date() - startTime;
+		if (elapsedTime < 1000) {
+			return true;
+		}
+		console.log(`Attempt ${error.attemptCount} failed.`);
+		return false;
+	},
+	retries: 30
+});
+
+console.log(result);
+```
+
 ##### signal
 
 Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal)

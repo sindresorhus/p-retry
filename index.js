@@ -27,14 +27,12 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 	return error;
 };
 
-const shouldRetry = () => true;
-
 export default async function pRetry(input, options) {
 	return new Promise((resolve, reject) => {
 		options = {
 			onFailedAttempt() {},
 			retries: 10,
-			shouldRetry,
+			shouldRetry: () => true,
 			...options,
 		};
 
