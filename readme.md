@@ -117,6 +117,8 @@ const result = await pRetry(run, {
 });
 ```
 
+In the example above, the operation will be retried unless the error is an instance of `CustomError`.
+
 ##### signal
 
 Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal)
