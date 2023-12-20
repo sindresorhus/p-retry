@@ -99,6 +99,26 @@ const result = await pRetry(run, {
 
 If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
+##### shouldRetry(error)
+
+Type: `Function`
+
+Decide if a retry should occur based on the error. Returning true triggers a retry, false aborts with the error.
+
+It is not called for `TypeError` (except network errors) and `AbortError`.
+
+```js
+import pRetry from 'p-retry';
+
+const run = async () => { … };
+
+const result = await pRetry(run, {
+	shouldRetry: error => !(error instanceof CustomError);
+});
+```
+
+In the example above, the operation will be retried unless the error is an instance of `CustomError`.
+
 ##### signal
 
 Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal)

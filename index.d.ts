@@ -42,6 +42,28 @@ export type Options = {
 	readonly onFailedAttempt?: (error: FailedAttemptError) => void | Promise<void>;
 
 	/**
+	Decide if a retry should occur based on the error. Returning true triggers a retry, false aborts with the error.
+
+	It is not called for `TypeError` (except network errors) and `AbortError`.
+
+	@param error - The error thrown by the input function.
+
+	@example
+	```
+	import pRetry from 'p-retry';
+
+	const run = async () => { … };
+
+	const result = await pRetry(run, {
+		shouldRetry: error => !(error instanceof CustomError);
+	});
+	```
+
+	In the example above, the operation will be retried unless the error is an instance of `CustomError`.
+	*/
+	readonly shouldRetry?: (error: FailedAttemptError) => boolean | Promise<boolean>;
+
+	/**
 	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
 
 	```
