@@ -44,7 +44,7 @@ export type Options = {
 	/**
 	Decide if a retry should occur based on the error. Returning true triggers a retry, false aborts with the error.
 
-	shouldRetry is not called for TypeErrors (except network errors) and AbortError.
+	It is not called for `TypeError` (except network errors) and `AbortError`.
 
 	@param error - The error thrown by the input function.
 

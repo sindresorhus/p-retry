@@ -105,7 +105,7 @@ Type: `Function`
 
 Decide if a retry should occur based on the error. Returning true triggers a retry, false aborts with the error.
 
-shouldRetry is not called for TypeErrors (except network errors) and AbortError.
+It is not called for `TypeError` (except network errors) and `AbortError`.
 
 ```js
 import pRetry from 'p-retry';
