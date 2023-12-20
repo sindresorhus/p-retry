@@ -110,31 +110,11 @@ It is not called for `TypeError` (except network errors) and `AbortError`.
 ```js
 import pRetry from 'p-retry';
 
-const run = async () => {
-	const response = await fetch('https://sindresorhus.com/unicorn');
-
-	if (!response.ok) {
-		throw new Error(response.statusText);
-	}
-
-	return response.json();
-};
-
-const startTime = new Date();
+const run = async () => { … };
 
 const result = await pRetry(run, {
-	shouldRetry: (error) => {
-		const elapsedTime = new Date() - startTime;
-		if (elapsedTime < 1000) {
-			return true;
-		}
-		console.log(`Attempt ${error.attemptCount} failed.`);
-		return false;
-	},
-	retries: 30
+	shouldRetry: error => !(error instanceof CustomError);
 });
-
-console.log(result);
 ```
 
 ##### signal
