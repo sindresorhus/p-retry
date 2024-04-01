@@ -21,6 +21,11 @@ expectType<Promise<string>>(
 		retries: 5,
 	}),
 );
+expectType<Promise<string>>(
+	pRetry(() => 'foo', {
+		randomize: true,
+	}),
+);
 
 const abortError = new AbortError('foo');
 new AbortError(new Error('foo')); // eslint-disable-line no-new
