@@ -143,6 +143,23 @@ try {
 }
 ```
 
+##### randomize
+
+Decide whether to introduce a random delay between retry attempts. (multiply with a factor between 1 to 2)
+
+Enabling this option adds variability to the retry strategy, helping to distribute load peaks and reduce contention among concurrent retry attempts.
+
+```js
+import pRetry from 'p-retry';
+
+const run = async () => { … };
+
+const result = await pRetry(run, {
+	randomize: true
+});
+```
+
+
 ### AbortError(message)
 ### AbortError(error)
 

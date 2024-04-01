@@ -85,6 +85,24 @@ export type Options = {
 	```
 	*/
 	readonly signal?: AbortSignal;
+
+	/**
+	 Decide if a random delay should be introduced between retries.
+	 Enabling this option adds variability to the retry strategy, helping to distribute load peaks and reduce contention.
+	 If set to `true`, a random delay will be introduced between each retry attempt.
+	 *
+	 @example
+	 ```
+	 import pRetry from 'p-retry';
+	 *
+	 const run = async () => { ... };
+	 *
+	 const result = await pRetry(run, {
+	   randomize: true
+	 });
+	 ```
+	 */
+	 readonly randomize?: boolean;
 } & OperationOptions;
 
 /**
