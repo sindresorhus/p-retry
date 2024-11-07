@@ -72,8 +72,8 @@ const run = async () => {
 const result = await pRetry(run, {
 	onFailedAttempt: error => {
 		console.log(`Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`);
-		// 1st request => Attempt 1 failed. There are 4 retries left.
-		// 2nd request => Attempt 2 failed. There are 3 retries left.
+		// 1st request => Attempt 1 failed. There are 5 retries left.
+		// 2nd request => Attempt 2 failed. There are 4 retries left.
 		// …
 	},
 	retries: 5
