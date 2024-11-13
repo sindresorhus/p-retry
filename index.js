@@ -78,7 +78,9 @@ export default async function pRetry(input, options) {
 						reject(error);
 					}
 
-					await options.onFailedAttempt(error);
+					if (typeof options.onFailedAttempt === 'function') {
+						await options.onFailedAttempt(error);
+					}
 
 					if (!operation.retry(error)) {
 						throw operation.mainError();
