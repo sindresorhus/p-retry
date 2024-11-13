@@ -235,6 +235,19 @@ test('onFailedAttempt can be undefined', async t => {
 	});
 });
 
+test('shouldRetry can be undefined', async t => {
+	const error = new Error('thrown from onFailedAttempt');
+
+	await t.throwsAsync(pRetry(() => {
+		throw error;
+	}, {
+		shouldRetry: undefined,
+		retries: 1,
+	}), {
+		is: error,
+	});
+});
+
 test('throws useful error message when non-error is thrown', async t => {
 	await t.throwsAsync(pRetry(() => {
 		throw 'foo'; // eslint-disable-line no-throw-literal
