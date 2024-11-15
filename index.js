@@ -36,16 +36,14 @@ function calculateDelay(attempt, options) {
 }
 
 export default async function pRetry(input, options = {}) {
-	options = {
-		retries: 10,
-		factor: 2,
-		minTimeout: 1000,
-		maxTimeout: Number.POSITIVE_INFINITY,
-		randomize: false,
-		onFailedAttempt() {},
-		shouldRetry: () => true,
-		...options,
-	};
+	options = {...options};
+	options.retries ??= 10;
+	options.factor ??= 2;
+	options.minTimeout ??= 1000;
+	options.maxTimeout ??= Number.POSITIVE_INFINITY;
+	options.randomize ??= false;
+	options.onFailedAttempt ??= () => {};
+	options.shouldRetry ??= () => true;
 
 	options.signal?.throwIfAborted();
 
