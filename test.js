@@ -328,3 +328,17 @@ test('should retry only when shouldRetry returns true', async t => {
 
 	t.is(index, 3);
 });
+
+test('can retry functions that throw non-extensible errors', async t => {
+	let index = 0;
+	const nonExtensibleError = Object.preventExtensions(new Error('non-extensible-error'));
+
+	const returnValue = await pRetry(async attemptNumber => {
+		await delay(40);
+		index++;
+		return attemptNumber === 3 ? fixture : Promise.reject(nonExtensibleError);
+	});
+
+	t.is(returnValue, fixture);
+	t.is(index, 3);
+});

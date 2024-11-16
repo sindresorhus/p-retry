@@ -22,8 +22,13 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 	// Minus 1 from attemptNumber because the first attempt does not count as a retry
 	const retriesLeft = options.retries - (attemptNumber - 1);
 
-	error.attemptNumber = attemptNumber;
-	error.retriesLeft = retriesLeft;
+	try {
+		error.attemptNumber = attemptNumber;
+		error.retriesLeft = retriesLeft;
+	} catch {
+		// ignore errors trying to extend non-extensible errors
+	}
+
 	return error;
 };
 
