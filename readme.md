@@ -50,6 +50,14 @@ Type: `object`
 
 Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
 
+##### retries
+
+Type: `number`
+
+Default: `10`
+
+How many times to retry.
+
 ##### onFailedAttempt(error)
 
 Type: `Function`
