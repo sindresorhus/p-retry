@@ -30,6 +30,7 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 export default async function pRetry(input, options) {
 	return new Promise((resolve, reject) => {
 		options = {...options};
+		options.minTimeout ??= 1000;
 		options.onFailedAttempt ??= () => {};
 		options.shouldRetry ??= () => true;
 		options.retries ??= 10;

@@ -328,3 +328,26 @@ test('should retry only when shouldRetry returns true', async t => {
 
 	t.is(index, 3);
 });
+
+test('minTimeout defaults to 1000 if set to undefined', async t => {
+	const timestamps = [];
+
+	await pRetry(
+		async () => {
+			timestamps.push(Date.now());
+
+			if (timestamps.length === 1) {
+				throw new Error('try again');
+			}
+		},
+		{
+			retries: 1,
+			minTimeout: undefined,
+		},
+	);
+
+	t.is(timestamps.length, 2);
+
+	const interval = timestamps[1] - timestamps[0];
+	t.true(interval >= 1000, `Expected retry interval >= 1000 ms but found ${interval} ms`);
+});
