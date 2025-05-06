@@ -1,6 +1,6 @@
 {
 	"name": "p-retry",
-	"version": "6.2.0",
+	"version": "6.2.1",
 	"description": "Retry a promise-returning or async function",
 	"license": "MIT",
 	"repository": "sindresorhus/p-retry",

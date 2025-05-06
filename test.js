@@ -296,6 +296,32 @@ test('onFailedAttempt can throw to abort retries', async t => {
 	});
 });
 
+test('onFailedAttempt can be undefined', async t => {
+	const error = new Error('thrown from onFailedAttempt');
+
+	await t.throwsAsync(pRetry(() => {
+		throw error;
+	}, {
+		onFailedAttempt: undefined,
+		retries: 1,
+	}), {
+		is: error,
+	});
+});
+
+test('shouldRetry can be undefined', async t => {
+	const error = new Error('thrown from onFailedAttempt');
+
+	await t.throwsAsync(pRetry(() => {
+		throw error;
+	}, {
+		shouldRetry: undefined,
+		retries: 1,
+	}), {
+		is: error,
+	});
+});
+
 test('factor affects exponential backoff', async t => {
 	const delays = [];
 	const factor = 2;
