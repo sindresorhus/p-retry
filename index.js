@@ -37,6 +37,15 @@ function calculateDelay(attempt, options) {
 
 export default async function pRetry(input, options = {}) {
 	options = {...options};
+
+	if (typeof options.retries === 'number' && options.retries < 0) {
+		throw new TypeError('Expected `retries` to be a non-negative number.');
+	}
+
+	if (Object.hasOwn(options, 'forever')) {
+		throw new Error('The `forever` option is no longer supported. For many use-cases, you can set `retries: Infinity` instead.');
+	}
+
 	options.retries ??= 10;
 	options.factor ??= 2;
 	options.minTimeout ??= 1000;
@@ -107,6 +116,10 @@ export default async function pRetry(input, options = {}) {
 			if (finalDelay > 0) {
 				await new Promise((resolve, reject) => {
 					const timeoutToken = setTimeout(resolve, finalDelay);
+
+					if (options.unref) {
+						timeoutToken.unref?.();
+					}
 
 					options.signal?.addEventListener('abort', () => {
 						clearTimeout(timeoutToken);
