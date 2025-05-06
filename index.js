@@ -27,6 +27,8 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 };
 
 function calculateDelay(attempt, options) {
+	const random = options.randomize ? (Math.random() + 1) : 1;
+
 	let timeout = Math.round(random * Math.max(options.minTimeout, 1) * (options.factor ** (attempt - 1)));
 	timeout = Math.min(timeout, options.maxTimeout);
 
