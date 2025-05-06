@@ -1,4 +1,3 @@
-import retry from 'retry';
 import isNetworkError from 'is-network-error';
 
 export class AbortError extends Error {
@@ -27,66 +26,112 @@ const decorateErrorWithCounts = (error, attemptNumber, options) => {
 	return error;
 };
 
-export default async function pRetry(input, options) {
-	return new Promise((resolve, reject) => {
-		options = {...options};
-		options.onFailedAttempt ??= () => {};
-		options.shouldRetry ??= () => true;
-		options.retries ??= 10;
+function calculateDelay(attempt, options) {
+	const random = options.randomize ? (Math.random() + 1) : 1;
 
-		const operation = retry.operation(options);
+	let timeout = Math.round(random * Math.max(options.minTimeout, 1) * (options.factor ** (attempt - 1)));
+	timeout = Math.min(timeout, options.maxTimeout);
 
-		const abortHandler = () => {
-			operation.stop();
-			reject(options.signal?.reason);
-		};
+	return timeout;
+}
 
-		if (options.signal && !options.signal.aborted) {
-			options.signal.addEventListener('abort', abortHandler, {once: true});
-		}
+export default async function pRetry(input, options = {}) {
+	options = {...options};
 
-		const cleanUp = () => {
-			options.signal?.removeEventListener('abort', abortHandler);
-			operation.stop();
-		};
+	if (typeof options.retries === 'number' && options.retries < 0) {
+		throw new TypeError('Expected `retries` to be a non-negative number.');
+	}
 
-		operation.attempt(async attemptNumber => {
-			try {
-				const result = await input(attemptNumber);
-				cleanUp();
-				resolve(result);
-			} catch (error) {
-				try {
-					if (!(error instanceof Error)) {
-						throw new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`);
-					}
+	if (Object.hasOwn(options, 'forever')) {
+		throw new Error('The `forever` option is no longer supported. For many use-cases, you can set `retries: Infinity` instead.');
+	}
 
-					if (error instanceof AbortError) {
-						throw error.originalError;
-					}
+	options.retries ??= 10;
+	options.factor ??= 2;
+	options.minTimeout ??= 1000;
+	options.maxTimeout ??= Number.POSITIVE_INFINITY;
+	options.randomize ??= false;
+	options.onFailedAttempt ??= () => {};
+	options.shouldRetry ??= () => true;
 
-					if (error instanceof TypeError && !isNetworkError(error)) {
-						throw error;
-					}
+	options.signal?.throwIfAborted();
 
-					decorateErrorWithCounts(error, attemptNumber, options);
+	let attemptNumber = 0;
+	const startTime = Date.now();
 
-					if (!(await options.shouldRetry(error))) {
-						operation.stop();
-						reject(error);
-					}
+	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
 
-					await options.onFailedAttempt(error);
+	while (attemptNumber < options.retries + 1) {
+		attemptNumber++;
 
-					if (!operation.retry(error)) {
-						throw operation.mainError();
-					}
-				} catch (finalError) {
-					decorateErrorWithCounts(finalError, attemptNumber, options);
-					cleanUp();
-					reject(finalError);
-				}
+		try {
+			options.signal?.throwIfAborted();
+
+			const result = await input(attemptNumber);
+
+			options.signal?.throwIfAborted();
+
+			return result;
+		} catch (catchError) {
+			let error = catchError;
+
+			if (!(error instanceof Error)) {
+				error = new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`);
 			}
-		});
-	});
+
+			if (error instanceof AbortError) {
+				throw error.originalError;
+			}
+
+			if (error instanceof TypeError && !isNetworkError(error)) {
+				throw error;
+			}
+
+			decorateErrorWithCounts(error, attemptNumber, options);
+
+			// Always call onFailedAttempt
+			await options.onFailedAttempt(error);
+
+			const currentTime = Date.now();
+			if (
+				currentTime - startTime >= maxRetryTime
+				|| attemptNumber >= options.retries + 1
+				|| !(await options.shouldRetry(error))
+			) {
+				throw error; // Do not retry, throw the original error
+			}
+
+			// Calculate delay before next attempt
+			const delayTime = calculateDelay(attemptNumber, options);
+
+			// Ensure that delay does not exceed maxRetryTime
+			const timeLeft = maxRetryTime - (currentTime - startTime);
+			if (timeLeft <= 0) {
+				throw error; // Max retry time exceeded
+			}
+
+			const finalDelay = Math.min(delayTime, timeLeft);
+
+			// Introduce delay
+			if (finalDelay > 0) {
+				await new Promise((resolve, reject) => {
+					const timeoutToken = setTimeout(resolve, finalDelay);
+
+					if (options.unref) {
+						timeoutToken.unref?.();
+					}
+
+					options.signal?.addEventListener('abort', () => {
+						clearTimeout(timeoutToken);
+						reject(options.signal.reason);
+					}, {once: true});
+				});
+			}
+
+			options.signal?.throwIfAborted();
+		}
+	}
+
+	// Should not reach here, but in case it does, throw an error
+	throw new Error('Retry attempts exhausted without throwing an error.');
 }

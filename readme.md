@@ -34,21 +34,19 @@ console.log(await pRetry(run, {retries: 5}));
 
 ### pRetry(input, options?)
 
-Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the maximum number of retries is reached. It then rejects with the last rejection reason.
+Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled promise. If calling `input` returns a rejected promise, `input` is called again until the max retries are reached, it then rejects with the last rejection reason.
 
-It does not retry on most `TypeError`'s, with the exception of network errors. This is done on a best case basis as different browsers have different [messages](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#Checking_that_the_fetch_was_successful) to indicate this. See [whatwg/fetch#526 (comment)](https://github.com/whatwg/fetch/issues/526#issuecomment-554604080)
+Does not retry on most `TypeErrors`, with the exception of network errors. This is done on a best case basis as different browsers have different [messages](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#Checking_that_the_fetch_was_successful) to indicate this. See [whatwg/fetch#526 (comment)](https://github.com/whatwg/fetch/issues/526#issuecomment-554604080)
 
 #### input
 
 Type: `Function`
 
-Receives the current attempt number as the first argument and is expected to return a `Promise` or any value.
+Receives the number of attempts as the first argument and is expected to return a `Promise` or any value.
 
 #### options
 
 Type: `object`
-
-Options are passed to the [`retry`](https://github.com/tim-kos/node-retry#retryoperationoptions) module.
 
 ##### onFailedAttempt(error)
 
@@ -72,8 +70,8 @@ const run = async () => {
 const result = await pRetry(run, {
 	onFailedAttempt: error => {
 		console.log(`Attempt ${error.attemptNumber} failed. There are ${error.retriesLeft} retries left.`);
-		// 1st request => Attempt 1 failed. There are 4 retries left.
-		// 2nd request => Attempt 2 failed. There are 3 retries left.
+		// 1st request => Attempt 1 failed. There are 5 retries left.
+		// 2nd request => Attempt 2 failed. There are 4 retries left.
 		// …
 	},
 	retries: 5
@@ -82,17 +80,18 @@ const result = await pRetry(run, {
 console.log(result);
 ```
 
-The `onFailedAttempt` function can return a promise. For example, you can do some async logging:
+The `onFailedAttempt` function can return a promise. For example, to add a [delay](https://github.com/sindresorhus/delay):
 
 ```js
 import pRetry from 'p-retry';
-import logger from './some-logger';
+import delay from 'delay';
 
 const run = async () => { … };
 
 const result = await pRetry(run, {
 	onFailedAttempt: async error => {
-		await logger.log(error);
+		console.log('Waiting for 1 second before retrying');
+		await delay(1000);
 	}
 });
 ```
@@ -119,6 +118,48 @@ const result = await pRetry(run, {
 
 In the example above, the operation will be retried unless the error is an instance of `CustomError`.
 
+##### retries
+
+Type: `number`\
+Default: `10`
+
+The maximum amount of times to retry the operation.
+
+##### factor
+
+Type: `number`\
+Default: `2`
+
+The exponential factor to use.
+
+##### minTimeout
+
+Type: `number`\
+Default: `1000`
+
+The number of milliseconds before starting the first retry.
+
+##### maxTimeout
+
+Type: `number`\
+Default: `Infinity`
+
+The maximum number of milliseconds between two retries.
+
+##### randomize
+
+Type: `boolean`\
+Default: `false`
+
+Randomizes the timeouts by multiplying with a factor between 1 and 2.
+
+##### maxRetryTime
+
+Type: `number`\
+Default: `Infinity`
+
+The maximum time (in milliseconds) that the retried operation is allowed to run.
+
 ##### signal
 
 Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal)
@@ -142,6 +183,15 @@ try {
 	//=> 'User clicked cancel button'
 }
 ```
+
+##### unref
+
+Type: `boolean`\
+Default: `false`
+
+Prevents retry timeouts from keeping the process alive.
+
+Only affects platforms with a `.unref()` method on timeouts, such as Node.js.
 
 ### AbortError(message)
 ### AbortError(error)
