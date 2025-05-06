@@ -228,6 +228,30 @@ await pRetry(run, {retries: 5});
 await pRetry(() => run('🦄'), {retries: 5});
 ```
 
+## FAQ
+
+### How do I stop retries when the process receives SIGINT (Ctrl+C)?
+
+Use an [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController) to signal cancellation on SIGINT, and pass its `signal` to `pRetry`:
+
+```js
+import pRetry from 'p-retry';
+
+const controller = new AbortController();
+
+process.once('SIGINT', () => {
+	controller.abort(new Error('SIGINT received'));
+});
+
+try {
+	await pRetry(run, {signal: controller.signal});
+} catch (error) {
+	console.log('Retry stopped due to:', error.message);
+}
+```
+
+The package does not handle process signals itself to avoid global side effects.
+
 ## Related
 
 - [p-timeout](https://github.com/sindresorhus/p-timeout) - Timeout a promise after a specified amount of time
