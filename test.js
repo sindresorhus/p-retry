@@ -1,3 +1,7 @@
+import process from 'node:process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {execa} from 'execa';
 import test from 'ava';
 import delay from 'delay';
 import pRetry, {AbortError} from './index.js';
@@ -625,4 +629,71 @@ test.serial('unref option prevents timeout from keeping process alive', async t 
 	));
 
 	t.true(timeoutUnrefCalled, 'timeout.unref() should be called when unref option is true');
+});
+
+test('preserves user stack trace through async retries', async t => {
+	const script = `
+import pRetry from './index.js';
+
+async function foo1() {
+	return await foo2();
+}
+
+async function foo2() {
+	return await pRetry(
+		async () => {
+			throw new Error('foo2 failed');
+		},
+		{
+			retries: 1,
+		}
+	);
+}
+
+async function main() {
+	try {
+		await foo1();
+	} catch (error) {
+		console.error('STACKTRACE_START');
+		console.error(error.stack);
+		console.error('STACKTRACE_END');
+	}
+}
+
+main();
+`.trim();
+
+	const temporaryFile = path.join(process.cwd(), 'p-retry-stack-test.js');
+	await fs.writeFile(temporaryFile, script);
+
+	try {
+		const {stderr, stdout} = await execa('node', [temporaryFile], {reject: false});
+		const output = stderr + stdout;
+		const stack = output.split('STACKTRACE_START')[1]?.split('STACKTRACE_END')[0]?.trim();
+
+		t.truthy(stack, 'Should capture stack trace output');
+
+		t.regex(stack, /Error: foo2 failed/);
+
+		// Print the stack for debugging if needed
+		if (!/foo2/.test(stack) || !/foo1/.test(stack) || !/main/.test(stack)) {
+			console.log('\n==== Full stack trace for debugging ====\n' + stack + '\n==== End stack trace ====\n');
+		}
+
+		t.regex(stack, /foo2/);
+		t.regex(stack, /foo1/);
+		t.regex(stack, /main/);
+
+		// Check order
+		const lines = stack.split('\n');
+		const foo2Index = lines.findIndex(line => /foo2/.test(line));
+		const foo1Index = lines.findIndex(line => /foo1/.test(line));
+		const mainIndex = lines.findIndex(line => /main/.test(line));
+
+		t.true(foo2Index !== -1, 'foo2 should appear in the stack trace');
+		t.true(foo1Index > foo2Index, 'foo1 should appear after foo2');
+		t.true(mainIndex > foo1Index, 'main should appear after foo1');
+	} finally {
+		await fs.unlink(temporaryFile);
+	}
 });
