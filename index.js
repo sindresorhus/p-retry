@@ -17,13 +17,15 @@ export class AbortError extends Error {
 	}
 }
 
-const decorateErrorWithCounts = (error, attemptNumber, options) => {
+const createRetryContext = (error, attemptNumber, options) => {
 	// Minus 1 from attemptNumber because the first attempt does not count as a retry
 	const retriesLeft = options.retries - (attemptNumber - 1);
 
-	error.attemptNumber = attemptNumber;
-	error.retriesLeft = retriesLeft;
-	return error;
+	return Object.freeze({
+		error,
+		attemptNumber,
+		retriesLeft,
+	});
 };
 
 function calculateDelay(attempt, options) {
@@ -87,16 +89,16 @@ export default async function pRetry(input, options = {}) {
 				throw error;
 			}
 
-			decorateErrorWithCounts(error, attemptNumber, options);
+			const context = createRetryContext(error, attemptNumber, options);
 
 			// Always call onFailedAttempt
-			await options.onFailedAttempt(error);
+			await options.onFailedAttempt(context);
 
 			const currentTime = Date.now();
 			if (
 				currentTime - startTime >= maxRetryTime
 				|| attemptNumber >= options.retries + 1
-				|| !(await options.shouldRetry(error))
+				|| !(await options.shouldRetry(context))
 			) {
 				throw error; // Do not retry, throw the original error
 			}

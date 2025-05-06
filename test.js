@@ -151,7 +151,7 @@ test('operation stops immediately on AbortError', async t => {
 // 	let index = 0;
 // 	const controller = new AbortController();
 
-// 	await t.throwsAsync(pRetry(async attemptNumber => {
+// 	await t.throwsAsync(pRetry(async ({attemptNumber}) => {
 // 		await delay(40);
 // 		index++;
 // 		if (attemptNumber === 3) {
@@ -201,7 +201,7 @@ test('shouldRetry controls retry behavior', async t => {
 		const error = index < 3 ? shouldRetryError : customError;
 		throw error;
 	}, {
-		async shouldRetry(error) {
+		async shouldRetry({error}) {
 			return error.message === shouldRetryError.message;
 		},
 		retries: 10,
@@ -248,10 +248,10 @@ test('onFailedAttempt provides correct error details', async t => {
 			return attemptNumber === 3 ? fixture : Promise.reject(fixtureError);
 		},
 		{
-			onFailedAttempt(error) {
+			onFailedAttempt({error, attemptNumber: attempt, retriesLeft}) {
 				t.is(error, fixtureError);
-				t.is(error.attemptNumber, ++attemptNumber);
-				t.is(error.retriesLeft, retries - (index - 1));
+				t.is(attempt, ++attemptNumber);
+				t.is(retriesLeft, retries - (index - 1));
 			},
 			retries,
 		},

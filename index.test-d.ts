@@ -1,5 +1,5 @@
 import {expectType} from 'tsd';
-import pRetry, {AbortError, type FailedAttemptError} from './index.js';
+import pRetry, {AbortError, type RetryContext} from './index.js';
 
 expectType<Promise<number>>(
 	pRetry(async count => {
@@ -9,10 +9,10 @@ expectType<Promise<number>>(
 );
 expectType<Promise<void>>(
 	pRetry(() => {}, { // eslint-disable-line @typescript-eslint/no-empty-function
-		onFailedAttempt(error) {
-			expectType<FailedAttemptError>(error);
-			expectType<number>(error.attemptNumber);
-			expectType<number>(error.retriesLeft);
+		onFailedAttempt(context) {
+			expectType<RetryContext>(context);
+			expectType<number>(context.attemptNumber);
+			expectType<number>(context.retriesLeft);
 		},
 	}),
 );
