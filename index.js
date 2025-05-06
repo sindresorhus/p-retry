@@ -135,3 +135,7 @@ export default async function pRetry(input, options = {}) {
 	// Should not reach here, but in case it does, throw an error
 	throw new Error('Retry attempts exhausted without throwing an error.');
 }
+
+export function makeRetriable(function_, options) {
+	return (...arguments_) => pRetry(() => function_(...arguments_), options);
+}

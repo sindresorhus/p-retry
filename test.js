@@ -4,7 +4,7 @@ import path from 'node:path';
 import {execa} from 'execa';
 import test from 'ava';
 import delay from 'delay';
-import pRetry, {AbortError} from './index.js';
+import pRetry, {makeRetriable, AbortError} from './index.js';
 
 const fixture = Symbol('fixture');
 const fixtureError = new Error('fixture');
@@ -696,4 +696,33 @@ main();
 	} finally {
 		await fs.unlink(temporaryFile);
 	}
+});
+
+test('makeRetriable wraps and retries the function', async t => {
+	let callCount = 0;
+	const function_ = async (a, b) => {
+		callCount++;
+		if (callCount < 3) {
+			throw new Error('fail');
+		}
+
+		return a + b;
+	};
+
+	const retried = makeRetriable(function_, {retries: 5, minTimeout: 0});
+	const result = await retried(2, 3);
+	t.is(result, 5);
+	t.is(callCount, 3);
+});
+
+test('makeRetriable passes arguments and options', async t => {
+	let lastArguments;
+	const function_ = (...arguments_) => {
+		lastArguments = arguments_;
+		throw new Error('fail');
+	};
+
+	const retried = makeRetriable(function_, {retries: 1, minTimeout: 0});
+	await t.throwsAsync(() => retried('foo', 42));
+	t.deepEqual(lastArguments, ['foo', 42]);
 });

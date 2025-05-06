@@ -195,3 +195,20 @@ export default function pRetry<T>(
 	input: (attemptCount: number) => PromiseLike<T> | T,
 	options?: Options
 ): Promise<T>;
+
+/**
+Wrap a function so that each call is automatically retried on failure.
+
+@example
+```
+import {makeRetriable} from 'p-retry';
+
+const fetchWithRetry = makeRetriable(fetch, {retries: 5});
+
+const response = await fetchWithRetry('https://sindresorhus.com/unicorn');
+```
+*/
+export function makeRetriable<Arguments extends readonly unknown[], Result>(
+	function_: (...arguments_: Arguments) => PromiseLike<Result> | Result,
+	options?: Options
+): (...arguments_: Arguments) => Promise<Result>;

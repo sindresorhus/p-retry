@@ -193,6 +193,18 @@ Prevents retry timeouts from keeping the process alive.
 
 Only affects platforms with a `.unref()` method on timeouts, such as Node.js.
 
+### makeRetriable(function, options?)
+
+Wrap a function so that each call is automatically retried on failure.
+
+```js
+import {makeRetriable} from 'p-retry';
+
+const fetchWithRetry = makeRetriable(fetch, {retries: 5});
+
+const response = await fetchWithRetry('https://sindresorhus.com/unicorn');
+```
+
 ### AbortError(message)
 ### AbortError(error)
 
