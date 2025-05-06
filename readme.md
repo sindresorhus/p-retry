@@ -230,6 +230,10 @@ await pRetry(() => run('🦄'), {retries: 5});
 
 ## FAQ
 
+### How do I mock timers when testing with this package?
+
+The package uses `setTimeout` and `clearTimeout` from the global scope, so you can use the [Node.js test timer mocking](https://nodejs.org/api/test.html#class-mocktimers) or a package like [`sinon`](https://github.com/sinonjs/sinon).
+
 ### How do I stop retries when the process receives SIGINT (Ctrl+C)?
 
 Use an [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController) to signal cancellation on SIGINT, and pass its `signal` to `pRetry`:
