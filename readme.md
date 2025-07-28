@@ -111,7 +111,7 @@ import pRetry from 'p-retry';
 const run = async () => { … };
 
 const result = await pRetry(run, {
-	shouldRetry: ({error, attemptNumber, retriesLeft}) => !(error instanceof CustomError),
+	shouldRetry: ({error, attemptNumber, retriesLeft}) => !(error instanceof CustomError)
 });
 ```
 
