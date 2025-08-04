@@ -17,14 +17,18 @@ export class AbortError extends Error {
 	}
 }
 
-const createRetryContext = (error, attemptNumber, options) => {
+const createRetryContext = (error, attemptNumber, startTime, options) => {
 	// Minus 1 from attemptNumber because the first attempt does not count as a retry
 	const retriesLeft = options.retries - (attemptNumber - 1);
+	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
+	const currentTime = Date.now();
+	const timeLeft = maxRetryTime - (currentTime - startTime);
 
 	return Object.freeze({
 		error,
-		attemptNumber,
 		retriesLeft,
+		timeLeft,
+		attemptNumber,
 	});
 };
 
@@ -54,14 +58,12 @@ export default async function pRetry(input, options = {}) {
 	options.maxTimeout ??= Number.POSITIVE_INFINITY;
 	options.randomize ??= false;
 	options.onFailedAttempt ??= () => {};
-	options.shouldRetry ??= () => true;
+	options.shouldRetry ??= ({retriesLeft, timeLeft}) => retriesLeft && timeLeft;
 
 	options.signal?.throwIfAborted();
 
 	let attemptNumber = 0;
 	const startTime = Date.now();
-
-	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
 
 	while (attemptNumber < options.retries + 1) {
 		attemptNumber++;
@@ -89,28 +91,18 @@ export default async function pRetry(input, options = {}) {
 				throw error;
 			}
 
-			const context = createRetryContext(error, attemptNumber, options);
+			const context = createRetryContext(error, attemptNumber, startTime, options);
 
 			// Always call onFailedAttempt
 			await options.onFailedAttempt(context);
 
-			const currentTime = Date.now();
-			if (
-				currentTime - startTime >= maxRetryTime
-				|| attemptNumber >= options.retries + 1
-				|| !(await options.shouldRetry(context))
+			if (!(await options.shouldRetry(context))
 			) {
 				throw error; // Do not retry, throw the original error
 			}
 
 			// Calculate delay before next attempt
 			const delayTime = calculateDelay(attemptNumber, options);
-
-			// Ensure that delay does not exceed maxRetryTime
-			const timeLeft = maxRetryTime - (currentTime - startTime);
-			if (timeLeft <= 0) {
-				throw error; // Max retry time exceeded
-			}
 
 			const finalDelay = Math.min(delayTime, timeLeft);
 
