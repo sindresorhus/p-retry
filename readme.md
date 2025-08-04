@@ -101,7 +101,7 @@ If the `onFailedAttempt` function throws, all retries will be aborted and the or
 
 Type: `Function`
 
-Decide if a retry should occur based on the context. Returning true triggers a retry, false aborts with the error.
+Decide if a retry should occur based on the context. Returning true triggers a retry, false aborts with the error (regardless of `retries` and `maxRetryTime`).
 
 It is not called for `TypeError` (except network errors) and `AbortError`.
 

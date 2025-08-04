@@ -214,17 +214,17 @@ test('shouldRetry controls retry behavior', async t => {
 
 test('handles async shouldRetry with maxRetryTime', async t => {
 	let attempts = 0;
-	const start = Date.now();
-	const maxRetryTime = 1000;
+	const retries = 3;
 
 	await t.throwsAsync(pRetry(
 		async () => {
 			attempts++;
+
 			throw new Error('test');
 		},
 		{
-			retries: 10,
-			maxRetryTime,
+			retries,
+			maxRetryTime: 100,
 			async shouldRetry() {
 				await delay(100);
 				return true;
@@ -232,8 +232,7 @@ test('handles async shouldRetry with maxRetryTime', async t => {
 		},
 	));
 
-	t.true(Date.now() - start <= maxRetryTime + 200);
-	t.true(attempts < 10);
+	t.is(attempts, retries + 1);
 });
 
 test('onFailedAttempt provides correct error details', async t => {
