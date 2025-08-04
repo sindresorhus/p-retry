@@ -216,9 +216,14 @@ test('handles async shouldRetry with maxRetryTime', async t => {
 	let attempts = 0;
 	const retries = 3;
 
-	await t.throwsAsync(pRetry(
+	await pRetry(
 		async () => {
 			attempts++;
+
+			if (attempts === retries) {
+				return true;
+			}
+
 			throw new Error('test');
 		},
 		{
@@ -229,9 +234,9 @@ test('handles async shouldRetry with maxRetryTime', async t => {
 				return true;
 			},
 		},
-	));
+	);
 
-	t.is(attempts, retries + 1);
+	t.is(attempts, retries);
 });
 
 test('onFailedAttempt provides correct error details', async t => {

@@ -17,7 +17,7 @@ export class AbortError extends Error {
 	}
 }
 
-const createRetryContext = (error, attemptNumber, startTime, options) => {
+const createRetryContext = ({error, attemptNumber, startTime, options}) => {
 	// Minus 1 from attemptNumber because the first attempt does not count as a retry
 	const retriesLeft = options.retries - (attemptNumber - 1);
 
@@ -92,7 +92,12 @@ export default async function pRetry(input, options = {}) {
 				throw error;
 			}
 
-			const context = createRetryContext(error, attemptNumber, startTime, options);
+			const context = createRetryContext({
+				error,
+				attemptNumber,
+				startTime,
+				options,
+			});
 
 			// Always call onFailedAttempt
 			await options.onFailedAttempt(context);
