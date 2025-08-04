@@ -20,9 +20,10 @@ export class AbortError extends Error {
 const createRetryContext = (error, attemptNumber, startTime, options) => {
 	// Minus 1 from attemptNumber because the first attempt does not count as a retry
 	const retriesLeft = options.retries - (attemptNumber - 1);
+
 	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
 	const currentTime = Date.now();
-	const timeLeft = maxRetryTime - (currentTime - startTime);
+	const timeLeft = Math.max(0, maxRetryTime - (currentTime - startTime));
 
 	return Object.freeze({
 		error,
@@ -104,7 +105,7 @@ export default async function pRetry(input, options = {}) {
 			// Calculate delay before next attempt
 			const delayTime = calculateDelay(attemptNumber, options);
 
-			const finalDelay = Math.min(delayTime, timeLeft);
+			const finalDelay = Math.min(delayTime, context.timeLeft);
 
 			// Introduce delay
 			if (finalDelay > 0) {
