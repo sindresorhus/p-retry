@@ -71,6 +71,8 @@ export type Options = {
 	/**
 	Decide if a retry should occur based on the context. Returning true triggers a retry, false aborts with the error.
 
+	It is only called if `retries` and `maxRetryTime` have not been exhuasted.
+
 	It is not called for `TypeError` (except network errors) and `AbortError`.
 
 	@example
