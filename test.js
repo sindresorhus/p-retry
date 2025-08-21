@@ -66,6 +66,22 @@ test('no retry on TypeError', async t => {
 	t.is(index, 1);
 });
 
+test('shouldRetry is not called for non-network TypeError', async t => {
+	const typeErrorFixture = new TypeError('type-error-fixture');
+	let shouldRetryCalled = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		throw typeErrorFixture;
+	}, {
+		shouldRetry() {
+			shouldRetryCalled++;
+			return true;
+		},
+	}), {is: typeErrorFixture});
+
+	t.is(shouldRetryCalled, 0);
+});
+
 test('retry on TypeError - failed to fetch', async t => {
 	const typeErrorFixture = new TypeError('Failed to fetch');
 	let index = 0;
@@ -146,6 +162,21 @@ test('operation stops immediately on AbortError', async t => {
 	t.is(attempts, 2); // Should stop after AbortError
 });
 
+test('shouldRetry is not called for AbortError', async t => {
+	let shouldRetryCalled = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new AbortError('stop');
+	}, {
+		shouldRetry() {
+			shouldRetryCalled++;
+			return true;
+		},
+	}), {message: 'stop'});
+
+	t.is(shouldRetryCalled, 0);
+});
+
 // AVA does not support DOMException.
 // test('aborts with an AbortSignal', async t => {
 // 	let index = 0;
@@ -212,6 +243,24 @@ test('shouldRetry controls retry behavior', async t => {
 	t.is(index, 3);
 });
 
+test('onFailedAttempt then shouldRetry order', async t => {
+	const order = [];
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('order');
+	}, {
+		onFailedAttempt() {
+			order.push('onFailedAttempt');
+		},
+		shouldRetry() {
+			order.push('shouldRetry');
+			return false;
+		},
+	}));
+
+	t.deepEqual(order, ['onFailedAttempt', 'shouldRetry']);
+});
+
 test('handles async shouldRetry with maxRetryTime', async t => {
 	let attempts = 0;
 	const start = Date.now();
@@ -261,6 +310,26 @@ test('onFailedAttempt provides correct error details', async t => {
 	t.is(attemptNumber, 2);
 });
 
+test('onFailedAttempt is called even when shouldRetry returns false', async t => {
+	const error = new Error('fail');
+	let onFailedAttemptCount = 0;
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw error;
+	}, {
+		onFailedAttempt() {
+			onFailedAttemptCount++;
+		},
+		shouldRetry: () => false,
+		retries: 5,
+	}), {is: error});
+
+	t.is(attempts, 1);
+	t.is(onFailedAttemptCount, 1);
+});
+
 test('onFailedAttempt can return a promise to add a delay', async t => {
 	const waitFor = 1000;
 	const start = Date.now();
@@ -299,6 +368,17 @@ test('onFailedAttempt can throw to abort retries', async t => {
 	});
 });
 
+test('retry context object is immutable', async t => {
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		onFailedAttempt(context) {
+			// Attempt to mutate frozen object in strict mode should throw
+			Object.defineProperty(context, 'foo', {value: 'bar'});
+		},
+	}));
+});
+
 test('onFailedAttempt can be undefined', async t => {
 	const error = new Error('thrown from onFailedAttempt');
 
@@ -325,140 +405,168 @@ test('shouldRetry can be undefined', async t => {
 	});
 });
 
-test('factor affects exponential backoff', async t => {
-	const delays = [];
-	const factor = 2;
-	const minTimeout = 100;
+test.serial('factor affects exponential backoff', async t => {
+	// Stronger test: capture actual scheduled delays via mocked setTimeout
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0); // Execute immediately to avoid slowing tests
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
 
 	await t.throwsAsync(pRetry(
 		async () => {
-			const attemptNumber = delays.length + 1;
-			const expectedDelay = minTimeout * (factor ** (attemptNumber - 1));
-			delays.push(expectedDelay);
 			throw new Error('test');
 		},
 		{
 			retries: 3,
-			factor,
-			minTimeout,
+			factor: 2,
+			minTimeout: 100,
 			maxTimeout: Number.POSITIVE_INFINITY,
 			randomize: false,
 		},
 	));
 
-	t.is(delays[0], minTimeout);
-	t.is(delays[1], minTimeout * factor);
-	t.is(delays[2], minTimeout * (factor ** 2));
+	t.deepEqual(captured, [100, 200, 400]);
 });
 
-test('timeouts are incremental with factor', async t => {
-	const delays = [];
-	const minTimeout = 100;
-	const factor = 0.5; // Test with factor less than 1
+test.serial('timeouts are incremental with factor', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
 
 	await t.throwsAsync(pRetry(
 		async () => {
-			const attemptNumber = delays.length + 1;
-			const expectedDelay = minTimeout * (factor ** (attemptNumber - 1));
-			delays.push(expectedDelay);
 			throw new Error('test');
 		},
 		{
 			retries: 3,
-			factor,
-			minTimeout,
+			factor: 0.5,
+			minTimeout: 100,
 			maxTimeout: Number.POSITIVE_INFINITY,
 			randomize: false,
 		},
 	));
 
-	// Each delay should be factor times the previous
-	for (let i = 1; i < delays.length; i++) {
-		t.is(delays[i] / delays[i - 1], factor);
-	}
+	// With factor 0.5 and minTimeout 100, expected delays: 100, 50, 25 (before rounding)
+	t.deepEqual(captured, [100, 50, 25]);
 });
 
-test('minTimeout is respected even with small factor', async t => {
-	const delays = [];
-	const minTimeout = 100;
-	const factor = 0.1; // Very small factor
+test.serial('minTimeout is respected even with small factor', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
 
 	await t.throwsAsync(pRetry(
 		async () => {
-			const attemptNumber = delays.length + 1;
-			const expectedDelay = Math.max(minTimeout, minTimeout * (factor ** (attemptNumber - 1)));
-			delays.push(expectedDelay);
 			throw new Error('test');
 		},
 		{
-			retries: 3,
-			factor,
-			minTimeout,
+			retries: 2,
+			factor: 0.1,
+			minTimeout: 100,
 			maxTimeout: Number.POSITIVE_INFINITY,
 			randomize: false,
 		},
 	));
 
-	// All delays should be at least minTimeout
-	for (const delay of delays) {
-		t.true(delay >= minTimeout);
-	}
+	// First delay is at least minTimeout. Second is minTimeout * 0.1 = 10
+	t.deepEqual(captured, [100, 10]);
 });
 
-test('maxTimeout caps retry delays', async t => {
-	const delays = [];
-	const maxTimeout = 150;
-	const factor = 3;
-	const minTimeout = 100;
+test.serial('maxTimeout caps retry delays', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
 
 	await t.throwsAsync(pRetry(
 		async () => {
-			const attemptNumber = delays.length + 1;
-			const expectedDelay = Math.min(
-				minTimeout * (factor ** (attemptNumber - 1)),
-				maxTimeout,
-			);
-			delays.push(expectedDelay);
 			throw new Error('test');
 		},
 		{
 			retries: 3,
-			minTimeout,
-			factor,
-			maxTimeout,
+			minTimeout: 100,
+			factor: 3,
+			maxTimeout: 150,
 			randomize: false,
 		},
 	));
 
-	t.is(delays[0], minTimeout);
-	t.is(delays[1], maxTimeout);
-	t.is(delays[2], maxTimeout);
+	t.deepEqual(captured, [100, 150, 150]);
 });
 
-test('randomize affects retry delays', async t => {
-	const delays = new Set();
-	const minTimeout = 100;
+test('maxTimeout lower than minTimeout caps delay', async t => {
+	const start = Date.now();
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 1,
+		minTimeout: 200,
+		maxTimeout: 50,
+		factor: 1,
+	}));
+	const elapsed = Date.now() - start;
+	// Should be significantly less than minTimeout due to capping
+	t.true(elapsed < 200);
+});
+
+test.serial('randomize affects retry delays', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+	const originalRandom = Math.random;
+	let calls = 0;
+	const sequence = [0, 1, 0.5]; // → factors 1x, 2x, 1.5x
+
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	Math.random = () => sequence[calls++] ?? 0;
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+		Math.random = originalRandom;
+	});
 
 	await t.throwsAsync(pRetry(
 		async () => {
-			const random = Math.random() + 1;
-			const delay = Math.round(random * minTimeout);
-			delays.add(delay);
 			throw new Error('test');
 		},
 		{
 			retries: 3,
-			minTimeout,
+			minTimeout: 100,
 			factor: 1,
 			randomize: true,
 		},
 	));
 
-	t.true(delays.size > 1);
-	for (const delay of delays) {
-		t.true(delay >= minTimeout);
-		t.true(delay <= minTimeout * 2);
-	}
+	t.deepEqual(captured, [100, 200, 150]);
 });
 
 test('maxRetryTime limits total retry duration', async t => {
@@ -480,6 +588,49 @@ test('maxRetryTime limits total retry duration', async t => {
 	t.true(Date.now() - start < maxRetryTime + 1000);
 });
 
+test('onFailedAttempt time counts toward maxRetryTime', async t => {
+	let attempts = 0;
+	const start = Date.now();
+	const maxRetryTime = 200;
+
+	const error = await t.throwsAsync(pRetry(
+		async () => {
+			attempts++;
+			throw new Error('fail');
+		},
+		{
+			maxRetryTime,
+			minTimeout: 0,
+			async onFailedAttempt() {
+				await delay(300);
+			},
+		},
+	));
+
+	t.is(error.message, 'fail');
+	t.is(attempts, 1);
+	t.true(Date.now() - start < 1000);
+});
+
+test('signal abort during delay cancels promptly', async t => {
+	const controller = new AbortController();
+	const start = Date.now();
+
+	// Abort shortly after the first failure schedules its delay
+	setTimeout(() => controller.abort(fixtureError), 50);
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('retry');
+	}, {
+		signal: controller.signal,
+		retries: 5,
+		minTimeout: 500,
+		factor: 2,
+	}), {is: fixtureError});
+
+	t.true(Date.now() - start < 1000);
+});
+
 // AVA does not support DOMException.
 // test('aborts immediately if signal is already aborted', async t => {
 // 	const controller = new AbortController();
@@ -495,6 +646,21 @@ test('maxRetryTime limits total retry duration', async t => {
 // 	});
 // });
 
+test('aborts immediately if signal is already aborted with reason', async t => {
+	let called = 0;
+	const controller = new AbortController();
+	controller.abort(fixtureError);
+
+	await t.throwsAsync(pRetry(async () => {
+		called++;
+		throw new Error('should not run');
+	}, {
+		signal: controller.signal,
+	}), {is: fixtureError});
+
+	t.is(called, 0);
+});
+
 test('throws on negative retry count', async t => {
 	await t.throwsAsync(
 		pRetry(
@@ -504,6 +670,33 @@ test('throws on negative retry count', async t => {
 		{
 			instanceOf: TypeError,
 			message: 'Expected `retries` to be a non-negative number.',
+		},
+	);
+});
+
+test('throws on non-number retries', async t => {
+	await t.throwsAsync(
+		pRetry(
+			async () => {},
+			// @ts-expect-error - Intentionally wrong type for runtime validation
+			{retries: '3'},
+		),
+		{
+			instanceOf: TypeError,
+			message: 'Expected `retries` to be a number or Infinity.',
+		},
+	);
+});
+
+test('throws on NaN retries', async t => {
+	await t.throwsAsync(
+		pRetry(
+			async () => {},
+			{retries: Number.NaN},
+		),
+		{
+			instanceOf: TypeError,
+			message: 'Expected `retries` to be a valid number or Infinity, got NaN.',
 		},
 	);
 });
@@ -520,6 +713,55 @@ test('handles zero retries', async t => {
 	));
 
 	t.is(attempts, 1); // Should only try once with zero retries
+});
+
+test('onFailedAttempt still called when retries is zero', async t => {
+	let onFailedAttemptCount = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 0,
+		onFailedAttempt() {
+			onFailedAttemptCount++;
+		},
+	}));
+
+	t.is(onFailedAttemptCount, 1);
+});
+
+test('invalid numeric options throw', async t => {
+	await t.throwsAsync(pRetry(async () => {}, {factor: -1}));
+	await t.throwsAsync(pRetry(async () => {}, {minTimeout: -1}));
+	await t.throwsAsync(pRetry(async () => {}, {maxTimeout: -1}));
+	await t.throwsAsync(pRetry(async () => {}, {maxRetryTime: -1}));
+});
+
+test.serial('factor <= 0 is treated as 1 (stable delays)', async t => {
+	const start = Date.now();
+	let calls = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		calls++;
+		throw new Error('retry');
+	}, {
+		retries: 1,
+		minTimeout: 100,
+		factor: 0,
+		// Make delays deterministic
+		randomize: false,
+	}));
+
+	const elapsed = Date.now() - start;
+	// Expect ~1 delay of at least minTimeout
+	t.true(elapsed >= 90);
+	t.is(calls, 2);
+});
+
+test('unsupported `forever` option throws', async t => {
+	await t.throwsAsync(pRetry(async () => {}, {forever: true}), {
+		message: /no longer supported/,
+	});
 });
 
 test('handles zero maxRetryTime', async t => {
@@ -631,6 +873,22 @@ test.serial('unref option prevents timeout from keeping process alive', async t 
 	t.true(timeoutUnrefCalled, 'timeout.unref() should be called when unref option is true');
 });
 
+test.serial('unref option handles missing unref gracefully', async t => {
+	const originalSetTimeout = setTimeout;
+	globalThis.setTimeout = (function_, ms) => {
+		const id = originalSetTimeout(function_, ms);
+		return Number(id); // No `unref` property
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {retries: 1, minTimeout: 10, unref: true}));
+});
+
 test('preserves user stack trace through async retries', async t => {
 	const script = `
 import pRetry from './index.js';
@@ -725,4 +983,53 @@ test('makeRetriable passes arguments and options', async t => {
 	const retried = makeRetriable(function_, {retries: 1, minTimeout: 0});
 	await t.throwsAsync(() => retried('foo', 42));
 	t.deepEqual(lastArguments, ['foo', 42]);
+});
+
+test('makeRetriable preserves `this` context', async t => {
+	const object = {
+		value: 2,
+		calls: 0,
+		async add(n) {
+			this.calls++;
+			if (this.calls < 2) {
+				throw new Error('fail');
+			}
+
+			return this.value + n;
+		},
+	};
+
+	object.add = makeRetriable(object.add, {retries: 5, minTimeout: 0});
+	const result = await object.add(3);
+	t.is(result, 5);
+	t.is(object.calls, 2);
+});
+
+test('throws error from shouldRetry', async t => {
+	const thrown = new Error('shouldRetry failure');
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('operation failed');
+	}, {
+		shouldRetry() {
+			throw thrown;
+		},
+	}), {is: thrown});
+});
+
+test('retriesLeft is Infinity when retries is Infinity', async t => {
+	let observed;
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: Number.POSITIVE_INFINITY,
+		onFailedAttempt({retriesLeft}) {
+			observed = retriesLeft;
+			throw new Error('stop');
+		},
+		minTimeout: 0,
+	}));
+
+	t.is(observed, Number.POSITIVE_INFINITY);
 });
