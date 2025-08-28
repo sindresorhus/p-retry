@@ -69,8 +69,9 @@ function calculateDelay(attempt, options) {
 	return timeout;
 }
 
-async function onAttemptFailure(error, attemptNumber, options, startTime, maxRetryTime) {
-	let normalizedError = error;
+async function onAttemptFailure(context, options, startTime, maxRetryTime) {
+	let normalizedError = context.error;
+	const {retriesLeft, attemptNumber} = context;
 
 	if (!(normalizedError instanceof Error)) {
 		normalizedError = new TypeError(`Non-error was thrown: "${normalizedError}". You should only throw errors.`);
@@ -84,15 +85,13 @@ async function onAttemptFailure(error, attemptNumber, options, startTime, maxRet
 		throw normalizedError;
 	}
 
-	const context = createRetryContext(normalizedError, attemptNumber, options);
-
 	// Always call onFailedAttempt
 	await options.onFailedAttempt(context);
 
 	const currentTime = Date.now();
 	if (
 		currentTime - startTime >= maxRetryTime
-		|| attemptNumber >= options.retries + 1
+		|| retriesLeft <= 0
 		|| !(await options.shouldRetry(context))
 	) {
 		throw normalizedError; // Do not retry, throw the original error
@@ -150,6 +149,7 @@ export default async function pRetry(input, options = {}) {
 	options.randomize ??= false;
 	options.onFailedAttempt ??= () => {};
 	options.shouldRetry ??= () => true;
+	options.shouldSkip ??= () => false;
 
 	// Validate numeric options and normalize edge cases
 	validateNumberOption('factor', options.factor, {min: 0, allowInfinity: false});
@@ -183,7 +183,13 @@ export default async function pRetry(input, options = {}) {
 
 			return result;
 		} catch (error) {
-			await onAttemptFailure(error, attemptNumber, options, startTime, maxRetryTime);
+			const context = createRetryContext(error, attemptNumber, options);
+
+			await onAttemptFailure(context, options, startTime, maxRetryTime);
+
+			if (options.shouldSkip(error)) {
+				attemptNumber = Math.max(0, attemptNumber - 1);
+			}
 		}
 	}
 
