@@ -1034,7 +1034,7 @@ test('retriesLeft is Infinity when retries is Infinity', async t => {
 	t.is(observed, Number.POSITIVE_INFINITY);
 });
 
-test('wont count SkipError as attempt', async t => {
+test('wont count skip as attempt', async t => {
 	let attempts = 0;
 	const maxAttempts = 3;
 
@@ -1049,7 +1049,7 @@ test('wont count SkipError as attempt', async t => {
 			throw new Error('skip');
 		},
 		{
-			retries: 1,
+			retries: 0,
 			shouldSkip: ({error}) => error.message === 'skip',
 			minTimeout: 0, // Speed up test
 		},

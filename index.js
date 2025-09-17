@@ -49,15 +49,14 @@ export class AbortError extends Error {
 	}
 }
 
-const createRetryContext = (error, attemptNumber, options) => {
-	// Minus 1 from attemptNumber because the first attempt does not count as a retry
-	const retriesLeft = options.retries - (attemptNumber - 1);
+const createRetryContext = async (error, attemptNumber, retriesLeft, options) => {
+	const context = {error, attemptNumber, retriesLeft};
 
-	return Object.freeze({
-		error,
-		attemptNumber,
-		retriesLeft,
-	});
+	if (! await options.shouldSkip(context)) {	
+		context.retriesLeft--;
+	}
+
+	return Object.freeze(context);
 };
 
 function calculateDelay(attempt, options) {
@@ -98,31 +97,34 @@ async function onAttemptFailure(context, options, startTime, maxRetryTime) {
 		throw normalizedError; // Do not retry, throw the original error
 	}
 
-	// Calculate delay before next attempt
-	const delayTime = calculateDelay(attemptNumber, options);
+	if (!options.shouldSkip(context)) {
+		
+		// Calculate delay before next attempt
+		const delayTime = calculateDelay(attemptNumber, options);
 
-	const finalDelay = Math.min(delayTime, timeLeft);
+		const finalDelay = Math.min(delayTime, timeLeft);
 
-	// Introduce delay
-	if (finalDelay > 0) {
-		await new Promise((resolve, reject) => {
-			const onAbort = () => {
-				clearTimeout(timeoutToken);
-				options.signal?.removeEventListener('abort', onAbort);
-				reject(options.signal.reason);
-			};
+		// Introduce delay
+		if (finalDelay > 0) {
+			await new Promise((resolve, reject) => {
+				const onAbort = () => {
+					clearTimeout(timeoutToken);
+					options.signal?.removeEventListener('abort', onAbort);
+					reject(options.signal.reason);
+				};
 
-			const timeoutToken = setTimeout(() => {
-				options.signal?.removeEventListener('abort', onAbort);
-				resolve();
-			}, finalDelay);
+				const timeoutToken = setTimeout(() => {
+					options.signal?.removeEventListener('abort', onAbort);
+					resolve();
+				}, finalDelay);
 
-			if (options.unref) {
-				timeoutToken.unref?.();
-			}
+				if (options.unref) {
+					timeoutToken.unref?.();
+				}
 
-			options.signal?.addEventListener('abort', onAbort, {once: true});
-		});
+				options.signal?.addEventListener('abort', onAbort, {once: true});
+			});
+		}
 	}
 
 	options.signal?.throwIfAborted();
@@ -161,12 +163,13 @@ export default async function pRetry(input, options = {}) {
 	options.signal?.throwIfAborted();
 
 	let attemptNumber = 0;
+	let retriesLeft = options.retries;
 	const startTime = Date.now();
 
 	// Use validated local value
 	const maxRetryTime = resolvedMaxRetryTime;
 
-	while (attemptNumber < options.retries + 1) {
+	while (retriesLeft >= 0) {
 		attemptNumber++;
 
 		try {
@@ -178,13 +181,11 @@ export default async function pRetry(input, options = {}) {
 
 			return result;
 		} catch (error) {
-			const context = createRetryContext(error, attemptNumber, options);
+			const context = await createRetryContext(error, attemptNumber, retriesLeft, options);
 
 			await onAttemptFailure(context, options, startTime, maxRetryTime);
 
-			if (await options.shouldSkip(context)) {
-				attemptNumber = Math.max(0, attemptNumber - 1);
-			}
+			retriesLeft = context.retriesLeft;
 		}
 	}
 
