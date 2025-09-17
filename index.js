@@ -88,9 +88,10 @@ async function onAttemptFailure(context, options, startTime, maxRetryTime) {
 	// Always call onFailedAttempt
 	await options.onFailedAttempt(context);
 
-	const currentTime = Date.now();
+	const timeLeft = maxRetryTime - (Date.now() - startTime);
+
 	if (
-		currentTime - startTime >= maxRetryTime
+		timeLeft <= 0
 		|| retriesLeft <= 0
 		|| !(await options.shouldRetry(context))
 	) {
@@ -99,12 +100,6 @@ async function onAttemptFailure(context, options, startTime, maxRetryTime) {
 
 	// Calculate delay before next attempt
 	const delayTime = calculateDelay(attemptNumber, options);
-
-	// Ensure that delay does not exceed maxRetryTime
-	const timeLeft = maxRetryTime - (currentTime - startTime);
-	if (timeLeft <= 0) {
-		throw normalizedError; // Max retry time exceeded
-	}
 
 	const finalDelay = Math.min(delayTime, timeLeft);
 
