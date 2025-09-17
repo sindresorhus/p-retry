@@ -187,7 +187,7 @@ export default async function pRetry(input, options = {}) {
 
 			await onAttemptFailure(context, options, startTime, maxRetryTime);
 
-			if (options.shouldSkip(error)) {
+			if (await options.shouldSkip(context)) {
 				attemptNumber = Math.max(0, attemptNumber - 1);
 			}
 		}

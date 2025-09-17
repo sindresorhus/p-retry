@@ -1050,7 +1050,7 @@ test('wont count SkipError as attempt', async t => {
 		},
 		{
 			retries: 1,
-			shouldSkip: error => error.message === 'skip',
+			shouldSkip: ({error}) => error.message === 'skip',
 			minTimeout: 0, // Speed up test
 		},
 	));

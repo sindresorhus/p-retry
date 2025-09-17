@@ -95,6 +95,8 @@ export type Options = {
 
 	Skipped errors do not consume retries but still invoke `onFailedAttempt`.
 
+	Provides the same `context` object as `shouldRetry` and `onFailedAttempt`.
+
 	@example
 	```
 	import pRetry from 'p-retry';
@@ -103,13 +105,13 @@ export type Options = {
 
 	const result = await pRetry(run, {
 		retries: 2,
-		shouldSkip: (error) => error instanceof RateLimitError
+		shouldSkip: ({error}) => error instanceof RateLimitError
 	});
 	```
 
 	In the example above, `RateLimitError`s will not count against the retry limit.
 	*/
-	readonly shouldSkip?: (error: Error) => boolean;
+	readonly shouldSkip?: (context: RetryContext) => boolean | Promise<boolean>;
 
 	/**
 	The maximum amount of times to retry the operation.

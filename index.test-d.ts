@@ -22,6 +22,17 @@ expectType<Promise<string>>(
 	}),
 );
 
+expectType<Promise<string>>(
+	pRetry(async () => 'value', {
+		async shouldSkip(context) {
+			expectType<RetryContext>(context);
+			expectType<Error>(context.error);
+			return false;
+		},
+		minTimeout: 0,
+	}),
+);
+
 const abortError = new AbortError('foo');
 new AbortError(new Error('foo')); // eslint-disable-line no-new
 
