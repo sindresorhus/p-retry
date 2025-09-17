@@ -50,7 +50,11 @@ export class AbortError extends Error {
 }
 
 const createRetryContext = async (error, attemptNumber, retriesLeft, options) => {
-	const context = {error, attemptNumber, retriesLeft};
+	const context = {
+		error,
+		attemptNumber,
+		retriesLeft
+	};
 
 	if (! await options.shouldSkip(context)) {	
 		context.retriesLeft--;
