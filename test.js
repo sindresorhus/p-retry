@@ -406,7 +406,6 @@ test('shouldRetry can be undefined', async t => {
 });
 
 test.serial('factor affects exponential backoff', async t => {
-	// Stronger test: capture actual scheduled delays via mocked setTimeout
 	const captured = [];
 	const originalSetTimeout = setTimeout;
 	globalThis.setTimeout = (function_, ms) => {
@@ -427,7 +426,6 @@ test.serial('factor affects exponential backoff', async t => {
 			factor: 2,
 			minTimeout: 100,
 			maxTimeout: Number.POSITIVE_INFINITY,
-			randomize: false,
 		},
 	));
 
@@ -518,6 +516,114 @@ test.serial('maxTimeout caps retry delays', async t => {
 	));
 
 	t.deepEqual(captured, [100, 150, 150]);
+});
+
+test.serial('skipped attempts do not impact backoff', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+	globalThis.setTimeout = (function_, ms, ...arguments_) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0, ...arguments_);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(
+		async () => {
+			attempts++;
+
+			if (attempts === 1) {
+				throw new Error('skip');
+			}
+
+			throw new Error('fail');
+		},
+		{
+			retries: 3,
+			factor: 2,
+			minTimeout: 100,
+			maxTimeout: Number.POSITIVE_INFINITY,
+			randomize: false,
+			shouldSkip: ({error}) => error.message === 'skip',
+		},
+	));
+
+	// Skip should not shift the backoff sequence; it simply retries without consuming budget.
+	t.deepEqual(captured, [100, 200, 400]);
+	// One skipped attempt plus three counted retries, plus the final failure.
+	t.is(attempts, 5);
+});
+
+test('callbacks receive expected context data', async t => {
+	const shouldSkipContexts = [];
+	const onFailedContexts = [];
+	let attempts = 0;
+
+	const result = await pRetry(async attemptNumber => {
+		attempts++;
+
+		if (attempts === 1) {
+			throw new Error('skip');
+		}
+
+		if (attempts === 2) {
+			throw new Error('fail');
+		}
+
+		return 'ok';
+	}, {
+		retries: 2,
+		minTimeout: 0,
+		shouldSkip(context) {
+			shouldSkipContexts.push(context);
+			return context.error.message === 'skip';
+		},
+		onFailedAttempt(context) {
+			onFailedContexts.push(context);
+		},
+	});
+
+	t.is(result, 'ok');
+	t.is(attempts, 3);
+
+	t.is(shouldSkipContexts.length, 2);
+	const [skipShouldCtx, failShouldCtx] = shouldSkipContexts;
+
+	t.is(skipShouldCtx.error.message, 'skip');
+	t.is(skipShouldCtx.attemptNumber, 1);
+	t.is(skipShouldCtx.retriesLeft, 2);
+	t.is(skipShouldCtx.skippedRetries, 0);
+	t.false(skipShouldCtx.skip);
+
+	t.is(failShouldCtx.error.message, 'fail');
+	t.is(failShouldCtx.attemptNumber, 2);
+	t.is(failShouldCtx.retriesLeft, 2);
+	t.is(failShouldCtx.skippedRetries, 1);
+	t.false(failShouldCtx.skip);
+
+	t.is(onFailedContexts.length, 2);
+	const [skipFailedCtx, failFailedCtx] = onFailedContexts;
+
+	t.is(skipFailedCtx.error.message, 'skip');
+	t.is(skipFailedCtx.attemptNumber, 1);
+	t.is(skipFailedCtx.retriesLeft, 2);
+	t.is(skipFailedCtx.skippedRetries, 1);
+	t.true(skipFailedCtx.skip);
+
+	t.is(failFailedCtx.error.message, 'fail');
+	t.is(failFailedCtx.attemptNumber, 2);
+	t.is(failFailedCtx.retriesLeft, 2);
+	t.is(failFailedCtx.skippedRetries, 1);
+	t.false(failFailedCtx.skip);
+
+	t.is(skipShouldCtx.startTime, skipFailedCtx.startTime);
+	t.is(skipShouldCtx.maxRetryTime, skipFailedCtx.maxRetryTime);
+	t.true(Number.isFinite(skipShouldCtx.startTime));
+	t.is(skipShouldCtx.maxRetryTime, Number.POSITIVE_INFINITY);
 });
 
 test('maxTimeout lower than minTimeout caps delay', async t => {
@@ -1018,23 +1124,30 @@ test('throws error from shouldRetry', async t => {
 });
 
 test('retriesLeft is Infinity when retries is Infinity', async t => {
-	let observed;
+	const observed = [];
+	const maxAttempts = 4;
 
 	await t.throwsAsync(pRetry(async () => {
 		throw new Error('fail');
 	}, {
 		retries: Number.POSITIVE_INFINITY,
-		onFailedAttempt({retriesLeft}) {
-			observed = retriesLeft;
-			throw new Error('stop');
-		},
 		minTimeout: 0,
+		onFailedAttempt(context) {
+			observed.push(context.retriesLeft);
+			if (observed.length >= maxAttempts) {
+				throw new AbortError('stop');
+			}
+		},
 	}));
 
-	t.is(observed, Number.POSITIVE_INFINITY);
+	for (const retriesLeft of observed) {
+		t.is(retriesLeft, Number.POSITIVE_INFINITY);
+	}
+
+	t.is(observed.length, maxAttempts);
 });
 
-test('wont count skip as attempt', async t => {
+test('wont count skips as attempt', async t => {
 	let attempts = 0;
 	const maxAttempts = 3;
 

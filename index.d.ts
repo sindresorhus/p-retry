@@ -14,6 +14,8 @@ export type RetryContext = {
 	readonly error: Error;
 	readonly attemptNumber: number;
 	readonly retriesLeft: number;
+	readonly skippedRetries: number;
+	readonly skip: boolean;
 };
 
 export type Options = {
@@ -35,10 +37,10 @@ export type Options = {
 	};
 
 	const result = await pRetry(run, {
-		onFailedAttempt: ({error, attemptNumber, retriesLeft}) => {
-			console.log(`Attempt ${attemptNumber} failed. There are ${retriesLeft} retries left.`);
-			// 1st request => Attempt 1 failed. There are 5 retries left.
-			// 2nd request => Attempt 2 failed. There are 4 retries left.
+		onFailedAttempt: ({error, attemptNumber, retriesLeft, skip, skippedRetries}) => {
+			console.log(`Attempt ${attemptNumber} failed. There are ${retriesLeft} retries left. Skip? ${skip}. Total skipped: ${skippedRetries}.`);
+			// 1st request => Attempt 1 failed. There are 5 retries left. Skip? false. Total skipped: 0.
+			// 2nd request => Attempt 2 failed. There are 4 retries left. Skip? false. Total skipped: 0.
 			// …
 		},
 		retries: 5
@@ -82,7 +84,7 @@ export type Options = {
 	const run = async () => { … };
 
 	const result = await pRetry(run, {
-		shouldRetry: ({error, attemptNumber, retriesLeft}) => !(error instanceof CustomError)
+		shouldRetry: ({error, attemptNumber, retriesLeft, skip}) => !skip && !(error instanceof CustomError)
 	});
 	```
 
@@ -93,9 +95,11 @@ export type Options = {
 	/**
 	Decide if an error should be skipped and not count against the retry limit.
 
-	Skipped errors do not consume retries but still invoke `onFailedAttempt`.
+	Skipped errors do not consume retries or impact backoff, but still invoke `onFailedAttempt`.
 
 	Provides the same `context` object as `shouldRetry` and `onFailedAttempt`.
+
+	`RetryContext.skip` is always `false` within the `shouldSkip` callback.
 
 	@example
 	```

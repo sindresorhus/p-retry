@@ -49,21 +49,8 @@ export class AbortError extends Error {
 	}
 }
 
-const createRetryContext = async (error, attemptNumber, retriesLeft, options) => {
-	const context = {
-		error,
-		attemptNumber,
-		retriesLeft
-	};
-
-	if (! await options.shouldSkip(context)) {	
-		context.retriesLeft--;
-	}
-
-	return Object.freeze(context);
-};
-
-function calculateDelay(attempt, options) {
+function calculateDelay(context, options) {
+	const attempt = Math.max(1, context.attemptNumber - context.skippedRetries);
 	const random = options.randomize ? (Math.random() + 1) : 1;
 
 	let timeout = Math.round(random * Math.max(options.minTimeout, 1) * (options.factor ** (attempt - 1)));
@@ -72,9 +59,9 @@ function calculateDelay(attempt, options) {
 	return timeout;
 }
 
-async function onAttemptFailure(context, options, startTime, maxRetryTime) {
+async function onAttemptFailure(context, options) {
 	let normalizedError = context.error;
-	const {retriesLeft, attemptNumber} = context;
+	const {startTime, maxRetryTime} = context;
 
 	if (!(normalizedError instanceof Error)) {
 		normalizedError = new TypeError(`Non-error was thrown: "${normalizedError}". You should only throw errors.`);
@@ -88,27 +75,24 @@ async function onAttemptFailure(context, options, startTime, maxRetryTime) {
 		throw normalizedError;
 	}
 
-	// Always call onFailedAttempt
 	await options.onFailedAttempt(context);
 
-	const timeLeft = maxRetryTime - (Date.now() - startTime);
+	const currentTime = Date.now();
+	const timeElapsed = currentTime - startTime;
+	const timeLeft = maxRetryTime - timeElapsed;
 
 	if (
-		timeLeft <= 0
-		|| retriesLeft <= 0
-		|| !(await options.shouldRetry(context))
+		timeLeft <= 0 ||
+		(!context.skip && context.retriesLeft <= 0) ||
+		!(await options.shouldRetry(context))
 	) {
-		throw normalizedError; // Do not retry, throw the original error
+		throw normalizedError;
 	}
 
-	if (!options.shouldSkip(context)) {
-		
-		// Calculate delay before next attempt
-		const delayTime = calculateDelay(attemptNumber, options);
-
+	if (!context.skip) {
+		const delayTime = calculateDelay(context, options);
 		const finalDelay = Math.min(delayTime, timeLeft);
 
-		// Introduce delay
 		if (finalDelay > 0) {
 			await new Promise((resolve, reject) => {
 				const onAbort = () => {
@@ -167,13 +151,35 @@ export default async function pRetry(input, options = {}) {
 	options.signal?.throwIfAborted();
 
 	let attemptNumber = 0;
-	let retriesLeft = options.retries;
+	let retriesUsed = 0;
 	const startTime = Date.now();
-
-	// Use validated local value
 	const maxRetryTime = resolvedMaxRetryTime;
+	const totalRetries = options.retries;
 
-	while (retriesLeft >= 0) {
+	const createRetryContext = async ({error, attemptNumber, retriesUsed}) => {
+		const retriesLeft = Number.isFinite(totalRetries)
+			? Math.max(0, totalRetries - retriesUsed)
+			: totalRetries;
+		let skippedRetries = Math.max(0, (attemptNumber - 1) - retriesUsed);
+		let context = {
+			error,
+			attemptNumber,
+			retriesLeft,
+			skippedRetries,
+			startTime,
+			maxRetryTime,
+		};
+
+		context.skip = await options.shouldSkip(Object.freeze(Object.assign({}, context, {skip: false})));
+
+		if (context.skip) {
+			context.skippedRetries++;
+		}
+
+		return Object.freeze(context);
+	};
+
+	while (Number.isFinite(totalRetries) ? retriesUsed <= totalRetries : true) {
 		attemptNumber++;
 
 		try {
@@ -185,11 +191,11 @@ export default async function pRetry(input, options = {}) {
 
 			return result;
 		} catch (error) {
-			const context = await createRetryContext(error, attemptNumber, retriesLeft, options);
-
-			await onAttemptFailure(context, options, startTime, maxRetryTime);
-
-			retriesLeft = context.retriesLeft;
+			const context = await createRetryContext({error, attemptNumber, retriesUsed});
+			await onAttemptFailure(context, options);
+			if (!context.skip) {
+				retriesUsed++;
+			}
 		}
 	}
 
