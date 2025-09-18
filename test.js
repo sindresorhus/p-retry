@@ -563,7 +563,7 @@ test('callbacks receive expected context data', async t => {
 	const onFailedContexts = [];
 	let attempts = 0;
 
-	const result = await pRetry(async attemptNumber => {
+	const result = await pRetry(async () => {
 		attempts++;
 
 		if (attempts === 1) {
@@ -591,39 +591,39 @@ test('callbacks receive expected context data', async t => {
 	t.is(attempts, 3);
 
 	t.is(shouldSkipContexts.length, 2);
-	const [skipShouldCtx, failShouldCtx] = shouldSkipContexts;
+	const [skipShouldContext, failShouldContext] = shouldSkipContexts;
 
-	t.is(skipShouldCtx.error.message, 'skip');
-	t.is(skipShouldCtx.attemptNumber, 1);
-	t.is(skipShouldCtx.retriesLeft, 2);
-	t.is(skipShouldCtx.skippedRetries, 0);
-	t.false(skipShouldCtx.skip);
+	t.is(skipShouldContext.error.message, 'skip');
+	t.is(skipShouldContext.attemptNumber, 1);
+	t.is(skipShouldContext.retriesLeft, 2);
+	t.is(skipShouldContext.skippedRetries, 0);
+	t.false(skipShouldContext.skip);
 
-	t.is(failShouldCtx.error.message, 'fail');
-	t.is(failShouldCtx.attemptNumber, 2);
-	t.is(failShouldCtx.retriesLeft, 2);
-	t.is(failShouldCtx.skippedRetries, 1);
-	t.false(failShouldCtx.skip);
+	t.is(failShouldContext.error.message, 'fail');
+	t.is(failShouldContext.attemptNumber, 2);
+	t.is(failShouldContext.retriesLeft, 2);
+	t.is(failShouldContext.skippedRetries, 1);
+	t.false(failShouldContext.skip);
 
 	t.is(onFailedContexts.length, 2);
-	const [skipFailedCtx, failFailedCtx] = onFailedContexts;
+	const [skipFailedContext, failFailedContext] = onFailedContexts;
 
-	t.is(skipFailedCtx.error.message, 'skip');
-	t.is(skipFailedCtx.attemptNumber, 1);
-	t.is(skipFailedCtx.retriesLeft, 2);
-	t.is(skipFailedCtx.skippedRetries, 1);
-	t.true(skipFailedCtx.skip);
+	t.is(skipFailedContext.error.message, 'skip');
+	t.is(skipFailedContext.attemptNumber, 1);
+	t.is(skipFailedContext.retriesLeft, 2);
+	t.is(skipFailedContext.skippedRetries, 1);
+	t.true(skipFailedContext.skip);
 
-	t.is(failFailedCtx.error.message, 'fail');
-	t.is(failFailedCtx.attemptNumber, 2);
-	t.is(failFailedCtx.retriesLeft, 2);
-	t.is(failFailedCtx.skippedRetries, 1);
-	t.false(failFailedCtx.skip);
+	t.is(failFailedContext.error.message, 'fail');
+	t.is(failFailedContext.attemptNumber, 2);
+	t.is(failFailedContext.retriesLeft, 2);
+	t.is(failFailedContext.skippedRetries, 1);
+	t.false(failFailedContext.skip);
 
-	t.is(skipShouldCtx.startTime, skipFailedCtx.startTime);
-	t.is(skipShouldCtx.maxRetryTime, skipFailedCtx.maxRetryTime);
-	t.true(Number.isFinite(skipShouldCtx.startTime));
-	t.is(skipShouldCtx.maxRetryTime, Number.POSITIVE_INFINITY);
+	t.is(skipShouldContext.startTime, skipFailedContext.startTime);
+	t.is(skipShouldContext.maxRetryTime, skipFailedContext.maxRetryTime);
+	t.true(Number.isFinite(skipShouldContext.startTime));
+	t.is(skipShouldContext.maxRetryTime, Number.POSITIVE_INFINITY);
 });
 
 test('maxTimeout lower than minTimeout caps delay', async t => {

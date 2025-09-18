@@ -82,9 +82,9 @@ async function onAttemptFailure(context, options) {
 	const timeLeft = maxRetryTime - timeElapsed;
 
 	if (
-		timeLeft <= 0 ||
-		(!context.skip && context.retriesLeft <= 0) ||
-		!(await options.shouldRetry(context))
+		timeLeft <= 0
+		|| (!context.skip && context.retriesLeft <= 0)
+		|| !(await options.shouldRetry(context))
 	) {
 		throw normalizedError;
 	}
@@ -160,8 +160,8 @@ export default async function pRetry(input, options = {}) {
 		const retriesLeft = Number.isFinite(totalRetries)
 			? Math.max(0, totalRetries - retriesUsed)
 			: totalRetries;
-		let skippedRetries = Math.max(0, (attemptNumber - 1) - retriesUsed);
-		let context = {
+		const skippedRetries = Math.max(0, (attemptNumber - 1) - retriesUsed);
+		const context = {
 			error,
 			attemptNumber,
 			retriesLeft,
@@ -170,7 +170,7 @@ export default async function pRetry(input, options = {}) {
 			maxRetryTime,
 		};
 
-		context.skip = await options.shouldSkip(Object.freeze(Object.assign({}, context, {skip: false})));
+		context.skip = await options.shouldSkip(Object.freeze({...context, skip: false}));
 
 		if (context.skip) {
 			context.skippedRetries++;

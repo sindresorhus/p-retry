@@ -9,13 +9,13 @@ expectType<Promise<number>>(
 );
 expectType<Promise<void>>(
 	pRetry(() => {}, { // eslint-disable-line @typescript-eslint/no-empty-function
-			onFailedAttempt(context) {
-				expectType<RetryContext>(context);
-				expectType<number>(context.attemptNumber);
-				expectType<number>(context.retriesLeft);
-				expectType<number>(context.skippedRetries);
-				expectType<boolean>(context.skip);
-			},
+		onFailedAttempt(context) {
+			expectType<RetryContext>(context);
+			expectType<number>(context.attemptNumber);
+			expectType<number>(context.retriesLeft);
+			expectType<number>(context.skippedRetries);
+			expectType<boolean>(context.skip);
+		},
 	}),
 );
 expectType<Promise<string>>(
