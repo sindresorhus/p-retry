@@ -406,6 +406,7 @@ test('shouldRetry can be undefined', async t => {
 });
 
 test.serial('factor affects exponential backoff', async t => {
+	// Stronger test: capture actual scheduled delays via mocked setTimeout
 	const captured = [];
 	const originalSetTimeout = setTimeout;
 	globalThis.setTimeout = (function_, ms) => {
@@ -426,6 +427,7 @@ test.serial('factor affects exponential backoff', async t => {
 			factor: 2,
 			minTimeout: 100,
 			maxTimeout: Number.POSITIVE_INFINITY,
+			randomize: false,
 		},
 	));
 
