@@ -59,17 +59,24 @@ function calculateDelay(context, options) {
 	return timeout;
 }
 
+function normalizeError(error) {
+	if (!(error instanceof Error)) {
+		return new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`);
+	}
+
+	if (error instanceof AbortError) {
+		throw error.originalError;
+	}
+
+	if (error instanceof TypeError && !isNetworkError(error)) {
+		throw error;
+	}
+
+	return error;
+}
+
 async function onAttemptFailure(context, options) {
-	let normalizedError = context.error;
-	const {startTime, maxRetryTime} = context;
-
-	if (!(normalizedError instanceof Error)) {
-		normalizedError = new TypeError(`Non-error was thrown: "${normalizedError}". You should only throw errors.`);
-	}
-
-	if (normalizedError instanceof AbortError) {
-		throw normalizedError.originalError;
-	}
+	const {error: normalizedError, startTime, maxRetryTime} = context;
 
 	if (normalizedError instanceof TypeError && !isNetworkError(normalizedError)) {
 		throw normalizedError;
@@ -157,20 +164,27 @@ export default async function pRetry(input, options = {}) {
 	const totalRetries = options.retries;
 
 	const createRetryContext = async ({error, attemptNumber, retriesUsed}) => {
+		const normalizedError = normalizeError(error);
 		const retriesLeft = Number.isFinite(totalRetries)
 			? Math.max(0, totalRetries - retriesUsed)
 			: totalRetries;
 		const skippedRetries = Math.max(0, (attemptNumber - 1) - retriesUsed);
 		const context = {
-			error,
+			error: normalizedError,
 			attemptNumber,
 			retriesLeft,
 			skippedRetries,
+			skip: false,
 			startTime,
 			maxRetryTime,
 		};
 
-		context.skip = await options.shouldSkip(Object.freeze({...context, skip: false}));
+		try {
+			context.skip = await options.shouldSkip(Object.freeze({...context}));
+		} catch (error) {
+			await onAttemptFailure(Object.freeze({...context}), options);
+			throw error;
+		}
 
 		if (context.skip) {
 			context.skippedRetries++;

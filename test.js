@@ -1147,6 +1147,25 @@ test('retriesLeft is Infinity when retries is Infinity', async t => {
 	t.is(observed.length, maxAttempts);
 });
 
+test('shouldSkip receives normalized error for non-error throws', async t => {
+	let shouldSkipContext;
+
+	await t.throwsAsync(pRetry(async () => {
+		throw 'foo'; // eslint-disable-line no-throw-literal
+	}, {
+		retries: 0,
+		minTimeout: 0,
+		shouldSkip(context) {
+			shouldSkipContext = context;
+			return false;
+		},
+	}), {
+		message: /Non-error/,
+	});
+
+	t.true(shouldSkipContext.error instanceof TypeError);
+});
+
 test('wont count skips as attempt', async t => {
 	let attempts = 0;
 	const maxAttempts = 3;
