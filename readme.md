@@ -119,6 +119,32 @@ const result = await pRetry(run, {
 
 In the example above, the operation will be retried unless the error is an instance of `CustomError`.
 
+##### shouldSkip(context)
+
+Type: `Function`
+
+Decide if an error should be "skipped".
+
+Skipped errors do not consume retries or impact backoff, but still invoke `onFailedAttempt`.
+
+Receives the same `context` object as `shouldRetry` and `onFailedAttempt`.
+
+```js
+import pRetry from 'p-retry';
+
+const run = async () => { … };
+
+const result = await pRetry(run, {
+	retries: 2,
+	shouldSkip: ({error, retriesLeft, skippedRetries}) => {
+		console.log(`Retries left: ${retriesLeft}, skipped so far: ${skippedRetries}`);
+		return error instanceof RateLimitError;
+	},
+});
+```
+
+In the example above, `RateLimitError`s will not count against the retry limit.
+
 ##### retries
 
 Type: `number`\

@@ -13,12 +13,27 @@ expectType<Promise<void>>(
 			expectType<RetryContext>(context);
 			expectType<number>(context.attemptNumber);
 			expectType<number>(context.retriesLeft);
+			expectType<number>(context.skippedRetries);
+			expectType<boolean>(context.skip);
 		},
 	}),
 );
 expectType<Promise<string>>(
 	pRetry(() => 'foo', {
 		retries: 5,
+	}),
+);
+
+expectType<Promise<string>>(
+	pRetry(async () => 'value', {
+		async shouldSkip(context) {
+			expectType<RetryContext>(context);
+			expectType<Error>(context.error);
+			expectType<number>(context.skippedRetries);
+			expectType<boolean>(context.skip);
+			return false;
+		},
+		minTimeout: 0,
 	}),
 );
 

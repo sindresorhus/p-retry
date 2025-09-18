@@ -520,6 +520,114 @@ test.serial('maxTimeout caps retry delays', async t => {
 	t.deepEqual(captured, [100, 150, 150]);
 });
 
+test.serial('skipped attempts do not impact backoff', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+	globalThis.setTimeout = (function_, ms, ...arguments_) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0, ...arguments_);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(
+		async () => {
+			attempts++;
+
+			if (attempts === 1) {
+				throw new Error('skip');
+			}
+
+			throw new Error('fail');
+		},
+		{
+			retries: 3,
+			factor: 2,
+			minTimeout: 100,
+			maxTimeout: Number.POSITIVE_INFINITY,
+			randomize: false,
+			shouldSkip: ({error}) => error.message === 'skip',
+		},
+	));
+
+	// Skip should not shift the backoff sequence; it simply retries without consuming budget.
+	t.deepEqual(captured, [100, 200, 400]);
+	// One skipped attempt plus three counted retries, plus the final failure.
+	t.is(attempts, 5);
+});
+
+test('callbacks receive expected context data', async t => {
+	const shouldSkipContexts = [];
+	const onFailedContexts = [];
+	let attempts = 0;
+
+	const result = await pRetry(async () => {
+		attempts++;
+
+		if (attempts === 1) {
+			throw new Error('skip');
+		}
+
+		if (attempts === 2) {
+			throw new Error('fail');
+		}
+
+		return 'ok';
+	}, {
+		retries: 2,
+		minTimeout: 0,
+		shouldSkip(context) {
+			shouldSkipContexts.push(context);
+			return context.error.message === 'skip';
+		},
+		onFailedAttempt(context) {
+			onFailedContexts.push(context);
+		},
+	});
+
+	t.is(result, 'ok');
+	t.is(attempts, 3);
+
+	t.is(shouldSkipContexts.length, 2);
+	const [skipShouldContext, failShouldContext] = shouldSkipContexts;
+
+	t.is(skipShouldContext.error.message, 'skip');
+	t.is(skipShouldContext.attemptNumber, 1);
+	t.is(skipShouldContext.retriesLeft, 2);
+	t.is(skipShouldContext.skippedRetries, 0);
+	t.false(skipShouldContext.skip);
+
+	t.is(failShouldContext.error.message, 'fail');
+	t.is(failShouldContext.attemptNumber, 2);
+	t.is(failShouldContext.retriesLeft, 2);
+	t.is(failShouldContext.skippedRetries, 1);
+	t.false(failShouldContext.skip);
+
+	t.is(onFailedContexts.length, 2);
+	const [skipFailedContext, failFailedContext] = onFailedContexts;
+
+	t.is(skipFailedContext.error.message, 'skip');
+	t.is(skipFailedContext.attemptNumber, 1);
+	t.is(skipFailedContext.retriesLeft, 2);
+	t.is(skipFailedContext.skippedRetries, 1);
+	t.true(skipFailedContext.skip);
+
+	t.is(failFailedContext.error.message, 'fail');
+	t.is(failFailedContext.attemptNumber, 2);
+	t.is(failFailedContext.retriesLeft, 2);
+	t.is(failFailedContext.skippedRetries, 1);
+	t.false(failFailedContext.skip);
+
+	t.is(skipShouldContext.startTime, skipFailedContext.startTime);
+	t.is(skipShouldContext.maxRetryTime, skipFailedContext.maxRetryTime);
+	t.true(Number.isFinite(skipShouldContext.startTime));
+	t.is(skipShouldContext.maxRetryTime, Number.POSITIVE_INFINITY);
+});
+
 test('maxTimeout lower than minTimeout caps delay', async t => {
 	const start = Date.now();
 	await t.throwsAsync(pRetry(async () => {
@@ -1018,18 +1126,68 @@ test('throws error from shouldRetry', async t => {
 });
 
 test('retriesLeft is Infinity when retries is Infinity', async t => {
-	let observed;
+	const observed = [];
+	const maxAttempts = 4;
 
 	await t.throwsAsync(pRetry(async () => {
 		throw new Error('fail');
 	}, {
 		retries: Number.POSITIVE_INFINITY,
-		onFailedAttempt({retriesLeft}) {
-			observed = retriesLeft;
-			throw new Error('stop');
-		},
 		minTimeout: 0,
+		onFailedAttempt(context) {
+			observed.push(context.retriesLeft);
+			if (observed.length >= maxAttempts) {
+				throw new AbortError('stop');
+			}
+		},
 	}));
 
-	t.is(observed, Number.POSITIVE_INFINITY);
+	for (const retriesLeft of observed) {
+		t.is(retriesLeft, Number.POSITIVE_INFINITY);
+	}
+
+	t.is(observed.length, maxAttempts);
+});
+
+test('shouldSkip receives normalized error for non-error throws', async t => {
+	let shouldSkipContext;
+
+	await t.throwsAsync(pRetry(async () => {
+		throw 'foo'; // eslint-disable-line no-throw-literal
+	}, {
+		retries: 0,
+		minTimeout: 0,
+		shouldSkip(context) {
+			shouldSkipContext = context;
+			return false;
+		},
+	}), {
+		message: /Non-error/,
+	});
+
+	t.true(shouldSkipContext.error instanceof TypeError);
+});
+
+test('wont count skips as attempt', async t => {
+	let attempts = 0;
+	const maxAttempts = 3;
+
+	await t.throwsAsync(pRetry(
+		async () => {
+			attempts++;
+
+			if (attempts === maxAttempts) {
+				throw new AbortError('stop');
+			}
+
+			throw new Error('skip');
+		},
+		{
+			retries: 0,
+			shouldSkip: ({error}) => error.message === 'skip',
+			minTimeout: 0, // Speed up test
+		},
+	));
+
+	t.is(attempts, maxAttempts);
 });

@@ -14,6 +14,8 @@ export type RetryContext = {
 	readonly error: Error;
 	readonly attemptNumber: number;
 	readonly retriesLeft: number;
+	readonly skippedRetries: number;
+	readonly skip: boolean;
 };
 
 export type Options = {
@@ -89,6 +91,31 @@ export type Options = {
 	In the example above, the operation will be retried unless the error is an instance of `CustomError`.
 	*/
 	readonly shouldRetry?: (context: RetryContext) => boolean | Promise<boolean>;
+
+	/**
+	Decide if a error should be considered skipped based on the context.
+
+	Skipped errors do not consume retries or impact backoff, but still invoke `onFailedAttempt`.
+
+	Provides the same `context` object as `shouldRetry` and `onFailedAttempt`.
+
+	`RetryContext.skip` is always `false` within the `shouldSkip` callback.
+
+	@example
+	```
+	import pRetry from 'p-retry';
+
+	const run = async () => { … };
+
+	const result = await pRetry(run, {
+		retries: 2,
+		shouldSkip: ({error}) => error instanceof RateLimitError
+	});
+	```
+
+	In the example above, `RateLimitError`s will not count against the retry limit.
+	*/
+	readonly shouldSkip?: (context: RetryContext) => boolean | Promise<boolean>;
 
 	/**
 	The maximum amount of times to retry the operation.
