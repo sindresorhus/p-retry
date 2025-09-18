@@ -67,7 +67,7 @@ const run = async () => {
 };
 
 const result = await pRetry(run, {
-	onFailedAttempt: ({error, attemptNumber, retriesLeft, skip, skippedRetries}) => {
+	onFailedAttempt: ({error, attemptNumber, retriesLeft}) => {
 		console.log(`Attempt ${attemptNumber} failed. There are ${retriesLeft} retries left.`);
 		// 1st request => Attempt 1 failed. There are 5 retries left.
 		// 2nd request => Attempt 2 failed. There are 4 retries left.
@@ -113,7 +113,7 @@ import pRetry from 'p-retry';
 const run = async () => { … };
 
 const result = await pRetry(run, {
-	shouldRetry: ({error, attemptNumber, retriesLeft, skip}) => !skip && !(error instanceof CustomError)
+	shouldRetry: ({error, attemptNumber, retriesLeft}) => !(error instanceof CustomError)
 });
 ```
 
