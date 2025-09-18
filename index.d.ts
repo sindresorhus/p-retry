@@ -93,7 +93,7 @@ export type Options = {
 	readonly shouldRetry?: (context: RetryContext) => boolean | Promise<boolean>;
 
 	/**
-	Decide if an error should be skipped and not count against the retry limit.
+	Decide if a error should be considered skipped based on the context.
 
 	Skipped errors do not consume retries or impact backoff, but still invoke `onFailedAttempt`.
 
