@@ -47,11 +47,23 @@ Receives the number of attempts as the first argument and is expected to return 
 
 Type: `object`
 
+##### RetryContext
+
+The callbacks below receive a [`RetryContext`](#retrycontext) object describing the current attempt:
+
+- `error`
+- `attemptNumber`
+- `startTime`:
+- `maxRetryTime`
+- `retriesLeft`
+- `skippedRetries`: number of failures where `shouldSkip` returned `true`.
+- `skip`: whether this attempted will be skipped. Note: this will always `false` within `shouldSkip`, as the outcome has not yet been determined.
+
 ##### onFailedAttempt(context)
 
 Type: `Function`
 
-Callback invoked on each retry. Receives a context object containing the error and retry state information.
+Callback invoked on each failure. Receives a [`RetryContext`](#retrycontext).
 
 ```js
 import pRetry from 'p-retry';
@@ -95,13 +107,13 @@ const result = await pRetry(run, {
 });
 ```
 
-If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
+If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error. The callback is invoked regardless of the outcome of `shouldSkip`.
 
 ##### shouldRetry(context)
 
 Type: `Function`
 
-Decide if a retry should occur based on the context. Returning true triggers a retry, false aborts with the error.
+Decide if a retry should occur based on the [`RetryContext`](#retrycontext). Returning true triggers a retry, false aborts with the error.
 
 It is only called if `retries` and `maxRetryTime` have not been exhausted.
 
@@ -123,11 +135,11 @@ In the example above, the operation will be retried unless the error is an insta
 
 Type: `Function`
 
-Decide if an error should be "skipped".
+Decide if an error should be skipped.
 
 Skipped errors do not consume retries or impact backoff, but still invoke `onFailedAttempt`.
 
-Receives the same `context` object as `shouldRetry` and `onFailedAttempt`.
+Receives a [`RetryContext`](#retrycontext).
 
 ```js
 import pRetry from 'p-retry';
