@@ -15,6 +15,8 @@ export type RetryContext = {
 	readonly attemptNumber: number;
 	readonly retriesLeft: number;
 	readonly skippedRetries: number;
+	readonly startTime: number;
+	readonly maxRetryTime: number;
 	readonly skip: boolean;
 };
 
