@@ -53,11 +53,8 @@ The callbacks below receive a [`RetryContext`](#retrycontext) object describing 
 
 - `error`
 - `attemptNumber`
-- `startTime`:
-- `maxRetryTime`
 - `retriesLeft`
-- `skippedRetries`: number of failures where `shouldSkip` returned `true`.
-- `skip`: whether this attempted will be skipped. Note: this will always `false` within `shouldSkip`, as the outcome has not yet been determined.
+- `retriesUsed`
 
 ##### onFailedAttempt(context)
 
@@ -148,8 +145,8 @@ const run = async () => { … };
 
 const result = await pRetry(run, {
 	retries: 2,
-	shouldSkip: ({error, retriesLeft, skippedRetries}) => {
-		console.log(`Retries left: ${retriesLeft}, skipped so far: ${skippedRetries}`);
+	shouldSkip: ({error, retriesLeft}) => {
+		console.log(`Retries left: ${retriesLeft}`);
 		return error instanceof RateLimitError;
 	},
 });

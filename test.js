@@ -560,72 +560,29 @@ test.serial('skipped attempts do not impact backoff', async t => {
 	t.is(attempts, 5);
 });
 
-test('callbacks receive expected context data', async t => {
-	const shouldSkipContexts = [];
-	const onFailedContexts = [];
+test('shouldSkip time counts toward maxRetryTime', async t => {
 	let attempts = 0;
+	const start = Date.now();
+	const maxRetryTime = 200;
 
-	const result = await pRetry(async () => {
-		attempts++;
-
-		if (attempts === 1) {
-			throw new Error('skip');
-		}
-
-		if (attempts === 2) {
+	const error = await t.throwsAsync(pRetry(
+		async () => {
+			attempts++;
 			throw new Error('fail');
-		}
-
-		return 'ok';
-	}, {
-		retries: 2,
-		minTimeout: 0,
-		shouldSkip(context) {
-			shouldSkipContexts.push(context);
-			return context.error.message === 'skip';
 		},
-		onFailedAttempt(context) {
-			onFailedContexts.push(context);
+		{
+			maxRetryTime,
+			minTimeout: 0,
+			async shouldSkip() {
+				await delay(300);
+				return false;
+			},
 		},
-	});
+	));
 
-	t.is(result, 'ok');
-	t.is(attempts, 3);
-
-	t.is(shouldSkipContexts.length, 2);
-	const [skipShouldContext, failShouldContext] = shouldSkipContexts;
-
-	t.is(skipShouldContext.error.message, 'skip');
-	t.is(skipShouldContext.attemptNumber, 1);
-	t.is(skipShouldContext.retriesLeft, 2);
-	t.is(skipShouldContext.skippedRetries, 0);
-	t.false(skipShouldContext.skip);
-
-	t.is(failShouldContext.error.message, 'fail');
-	t.is(failShouldContext.attemptNumber, 2);
-	t.is(failShouldContext.retriesLeft, 2);
-	t.is(failShouldContext.skippedRetries, 1);
-	t.false(failShouldContext.skip);
-
-	t.is(onFailedContexts.length, 2);
-	const [skipFailedContext, failFailedContext] = onFailedContexts;
-
-	t.is(skipFailedContext.error.message, 'skip');
-	t.is(skipFailedContext.attemptNumber, 1);
-	t.is(skipFailedContext.retriesLeft, 2);
-	t.is(skipFailedContext.skippedRetries, 1);
-	t.true(skipFailedContext.skip);
-
-	t.is(failFailedContext.error.message, 'fail');
-	t.is(failFailedContext.attemptNumber, 2);
-	t.is(failFailedContext.retriesLeft, 2);
-	t.is(failFailedContext.skippedRetries, 1);
-	t.false(failFailedContext.skip);
-
-	t.is(skipShouldContext.startTime, skipFailedContext.startTime);
-	t.is(skipShouldContext.maxRetryTime, skipFailedContext.maxRetryTime);
-	t.true(Number.isFinite(skipShouldContext.startTime));
-	t.is(skipShouldContext.maxRetryTime, Number.POSITIVE_INFINITY);
+	t.is(error.message, 'fail');
+	t.is(attempts, 1);
+	t.true(Date.now() - start < 1000);
 });
 
 test('maxTimeout lower than minTimeout caps delay', async t => {

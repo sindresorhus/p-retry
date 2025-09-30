@@ -14,10 +14,7 @@ export type RetryContext = {
 	readonly error: Error;
 	readonly attemptNumber: number;
 	readonly retriesLeft: number;
-	readonly skippedRetries: number;
-	readonly startTime: number;
-	readonly maxRetryTime: number;
-	readonly skip: boolean;
+	readonly retriesUsed: number;
 };
 
 export type Options = {
@@ -99,9 +96,7 @@ export type Options = {
 
 	Skipped errors do not consume retries or impact backoff, but still invoke `onFailedAttempt`.
 
-	Provides the same `context` object as `shouldRetry` and `onFailedAttempt`.
-
-	`RetryContext.skip` is always `false` within the `shouldSkip` callback.
+	Receives the same `context` object as `shouldRetry` and `onFailedAttempt`.
 
 	@example
 	```
