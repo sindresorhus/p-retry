@@ -134,7 +134,7 @@ Type: `Function`
 
 Decide if an error should be skipped.
 
-Skipped errors do not consume retries or impact backoff, but still invoke `onFailedAttempt`.
+Skipped errors do not expend retries or increment backoff, but are still subject to `maxRetryTime`.
 
 Receives a [`RetryContext`](#retrycontext).
 

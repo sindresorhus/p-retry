@@ -94,7 +94,7 @@ export type Options = {
 	/**
 	Decide if a error should be considered skipped based on the context.
 
-	Skipped errors do not consume retries or impact backoff, but still invoke `onFailedAttempt`.
+	Skipped errors do not expend retries or increment backoff, but are still subject to `maxRetryTime`.
 
 	Receives the same `context` object as `shouldRetry` and `onFailedAttempt`.
 
