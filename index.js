@@ -70,7 +70,7 @@ function calculateRemainingTime(start, max) {
 async function onAttemptFailure({error, attemptNumber, retriesUsed, startTime, options}) {
 	let normalizedError = error;
 
-	if (!(normalizedError instanceof Error)) {
+	if (!(error instanceof Error)) {
 		normalizedError = new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`);
 	}
 
