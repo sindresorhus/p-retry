@@ -36,10 +36,10 @@ export type Options = {
 	};
 
 	const result = await pRetry(run, {
-		onFailedAttempt: ({error, attemptNumber, retriesLeft}) => {
-			console.log(`Attempt ${attemptNumber} failed. There are ${retriesLeft} retries left.`);
-			// 1st request => Attempt 1 failed. There are 5 retries left.
-			// 2nd request => Attempt 2 failed. There are 4 retries left.
+		onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesUsed}) => {
+			console.log(`Attempt ${attemptNumber} failed. ${retriesLeft} retries left. ${retriesUsed} retries used.`);
+			// 1st request => Attempt 1 failed. 5 retries left. 0 retries used.
+			// 2nd request => Attempt 2 failed. 4 retries left. 1 retries used.
 			// …
 		},
 		retries: 5
@@ -77,6 +77,8 @@ export type Options = {
 	It is only called if `retries` and `maxRetryTime` have not been exhausted.
 
 	It is not called for `TypeError` (except network errors) and `AbortError`.
+
+	If the `shouldRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
 	@example
 	```
@@ -116,6 +118,8 @@ export type Options = {
 	```
 
 	In the example above, `RateLimitError`s will not count against the retry limit.
+
+	If the `shouldSkip` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
 	readonly shouldSkip?: (context: RetryContext) => boolean | Promise<boolean>;
 

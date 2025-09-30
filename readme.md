@@ -67,10 +67,10 @@ const run = async () => {
 };
 
 const result = await pRetry(run, {
-	onFailedAttempt: ({error, attemptNumber, retriesLeft}) => {
-		console.log(`Attempt ${attemptNumber} failed. There are ${retriesLeft} retries left.`);
-		// 1st request => Attempt 1 failed. There are 5 retries left.
-		// 2nd request => Attempt 2 failed. There are 4 retries left.
+	onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesUsed}) => {
+		console.log(`Attempt ${attemptNumber} failed. ${retriesLeft} retries left. ${retriesUsed} retries used.`);
+		// 1st request => Attempt 1 failed. 5 retries left. 0 retries used.
+		// 2nd request => Attempt 2 failed. 4 retries left. 1 retries used.
 		// …
 	},
 	retries: 5
@@ -138,10 +138,7 @@ const run = async () => { … };
 
 const result = await pRetry(run, {
 	retries: 2,
-	shouldSkip: ({error, retriesLeft}) => {
-		console.log(`Retries left: ${retriesLeft}`);
-		return error instanceof RateLimitError;
-	},
+	shouldSkip: ({error, retriesLeft}) => error instanceof RateLimitError,
 });
 ```
 
