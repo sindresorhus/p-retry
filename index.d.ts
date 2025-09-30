@@ -19,7 +19,7 @@ export type RetryContext = {
 
 export type Options = {
 	/**
-	Callback invoked on each retry. Receives a context object containing the error and retry state information.
+	Callback invoked on each failure. Receives a context object containing the error and retry state information.
 
 	@example
 	```
@@ -66,6 +66,8 @@ export type Options = {
 	```
 
 	If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
+
+	The callback is invoked regardless of the outcome of `shouldSkip`.
 	*/
 	readonly onFailedAttempt?: (context: RetryContext) => void | Promise<void>;
 
@@ -92,7 +94,7 @@ export type Options = {
 	readonly shouldRetry?: (context: RetryContext) => boolean | Promise<boolean>;
 
 	/**
-	Decide if a error should be considered skipped based on the context.
+	Decide if an error should be considered skipped based on the context.
 
 	Skipped errors do not expend retries or increment backoff, but are still subject to `maxRetryTime`.
 
@@ -106,7 +108,10 @@ export type Options = {
 
 	const result = await pRetry(run, {
 		retries: 2,
-		shouldSkip: ({error}) => error instanceof RateLimitError
+		shouldSkip: ({error, retriesLeft}) => {
+			console.log(`Retries left: ${retriesLeft}`);
+			return error instanceof RateLimitError;
+		},
 	});
 	```
 
