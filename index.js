@@ -109,10 +109,9 @@ async function onAttemptFailure({error, attemptNumber, retriesUsed, startTime, o
 		throw normalizedError;
 	}
 
-	const shouldRetry = await options.shouldRetry(context);
 	const remainingTime = calculateRemainingTime(startTime, maxRetryTime);
 
-	if (remainingTime <= 0 || retriesLeft <= 0 || !shouldRetry) {
+	if (remainingTime <= 0 || retriesLeft <= 0 || !await options.shouldRetry(context)) {
 		throw normalizedError;
 	}
 

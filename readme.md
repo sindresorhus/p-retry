@@ -47,20 +47,11 @@ Receives the number of attempts as the first argument and is expected to return 
 
 Type: `object`
 
-##### RetryContext
-
-The callbacks below receive a [`RetryContext`](#retrycontext) object describing the current attempt:
-
-- `error`
-- `attemptNumber`
-- `retriesLeft`
-- `retriesUsed`
-
 ##### onFailedAttempt(context)
 
 Type: `Function`
 
-Callback invoked on each failure. Receives a [`RetryContext`](#retrycontext).
+Callback invoked on each failure. Receives a context object containing the error and retry state information.
 
 ```js
 import pRetry from 'p-retry';
@@ -104,17 +95,21 @@ const result = await pRetry(run, {
 });
 ```
 
-If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error. The callback is invoked regardless of the outcome of `shouldSkip`.
+If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
+
+The callback is invoked regardless of the outcome of `shouldSkip`.
 
 ##### shouldRetry(context)
 
 Type: `Function`
 
-Decide if a retry should occur based on the [`RetryContext`](#retrycontext). Returning true triggers a retry, false aborts with the error.
+Decide if a retry should occur based on context. Returning true triggers a retry, false aborts with the error.
 
 It is only called if `retries` and `maxRetryTime` have not been exhausted.
 
 It is not called for `TypeError` (except network errors) and `AbortError`.
+
+If the `shouldRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
 ```js
 import pRetry from 'p-retry';
@@ -136,8 +131,6 @@ Decide if an error should be skipped.
 
 Skipped errors do not expend retries or increment backoff, but are still subject to `maxRetryTime`.
 
-Receives a [`RetryContext`](#retrycontext).
-
 ```js
 import pRetry from 'p-retry';
 
@@ -153,6 +146,8 @@ const result = await pRetry(run, {
 ```
 
 In the example above, `RateLimitError`s will not count against the retry limit.
+
+If the `shouldSkip` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
 ##### retries
 
