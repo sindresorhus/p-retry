@@ -162,6 +162,8 @@ export type Options = {
 	The maximum time (in milliseconds) that the retried operation is allowed to run.
 
 	@default Infinity
+
+	Measured with a monotonic clock (`performance.now()`) so system clock adjustments do not affect the limit.
 	*/
 	readonly maxRetryTime?: number;
 

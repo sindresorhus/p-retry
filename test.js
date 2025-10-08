@@ -1,6 +1,7 @@
 import process from 'node:process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {performance} from 'node:perf_hooks';
 import {execa} from 'execa';
 import test from 'ava';
 import delay from 'delay';
@@ -461,6 +462,68 @@ test.serial('timeouts are incremental with factor', async t => {
 
 	// With factor 0.5 and minTimeout 100, expected delays: 100, 50, 25 (before rounding)
 	t.deepEqual(captured, [100, 50, 25]);
+});
+
+test.serial('minTimeout: 0 never calls setTimeout', async t => {
+	const called = false;
+	const originalSetTimeout = setTimeout;
+	globalThis.setTimeout = (function_, ms) => {
+		called = true;
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	await t.throwsAsync(pRetry(
+		async () => {
+			throw new Error('test');
+		},
+		{
+			retries: 3,
+			factor: 0.5,
+			minTimeout: 0,
+			maxTimeout: Number.POSITIVE_INFINITY,
+			randomize: false,
+		},
+	));
+
+	t.is(called, false);
+});
+
+test.serial('maxRetryTime uses monotonic clock', async t => {
+	const originalDateNow = Date.now;
+	const originalPerformanceNow = performance.now;
+
+	let simulatedDateNow = 0;
+	Date.now = () => simulatedDateNow;
+
+	let simulatedMonotonicTimestamp = 0;
+	performance.now = () => simulatedMonotonicTimestamp;
+
+	t.teardown(() => {
+		Date.now = originalDateNow;
+		performance.now = originalPerformanceNow;
+	});
+
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(
+		async () => {
+			attempts++;
+			simulatedMonotonicTimestamp += 60;
+			simulatedDateNow += attempts === 2 ? -1000 : 60;
+			throw new Error('fail');
+		},
+		{
+			maxRetryTime: 100,
+			minTimeout: 0,
+			retries: 5,
+		},
+	), {message: 'fail'});
+
+	t.true(attempts >= 2);
 });
 
 test.serial('minTimeout is respected even with small factor', async t => {

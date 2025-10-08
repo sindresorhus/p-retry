@@ -167,6 +167,8 @@ Default: `1000`
 
 The number of milliseconds before starting the first retry.
 
+Set this to `0` to retry immediately with no delay.
+
 ##### maxTimeout
 
 Type: `number`\
@@ -187,6 +189,8 @@ Type: `number`\
 Default: `Infinity`
 
 The maximum time (in milliseconds) that the retried operation is allowed to run.
+
+Measured with a monotonic clock (`performance.now()`) so system clock adjustments do not affect the limit.
 
 ##### signal
 

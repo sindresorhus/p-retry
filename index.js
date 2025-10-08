@@ -64,7 +64,7 @@ function calculateRemainingTime(start, max) {
 		return max;
 	}
 
-	return max - (Date.now() - start);
+	return max - (performance.now() - start);
 }
 
 async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTime, options}) {
@@ -176,7 +176,7 @@ export default async function pRetry(input, options = {}) {
 
 	let attemptNumber = 0;
 	let retriesConsumed = 0;
-	const startTime = Date.now();
+	const startTime = performance.now();
 
 	while (Number.isFinite(options.retries) ? retriesConsumed <= options.retries : true) {
 		attemptNumber++;
