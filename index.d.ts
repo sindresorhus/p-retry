@@ -3,7 +3,7 @@ export class AbortError extends Error {
 	readonly originalError: Error;
 
 	/**
-	Abort retrying and reject the promise.
+	Abort retrying and reject the promise. No callback functions will be called.
 
 	@param message - An error message or a custom error.
 	*/
@@ -14,12 +14,16 @@ export type RetryContext = {
 	readonly error: Error;
 	readonly attemptNumber: number;
 	readonly retriesLeft: number;
-	readonly retriesUsed: number;
+	readonly retriesConsumed: number;
 };
 
 export type Options = {
 	/**
 	Callback invoked on each failure. Receives a context object containing the error and retry state information.
+
+	The function is called before `shouldConsumeRetry` and `shouldRetry`, for all errors except `AbortError`.
+
+	The function is not called on `AbortError`.
 
 	@example
 	```
@@ -36,10 +40,10 @@ export type Options = {
 	};
 
 	const result = await pRetry(run, {
-		onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesUsed}) => {
-			console.log(`Attempt ${attemptNumber} failed. ${retriesLeft} retries left. ${retriesUsed} retries used.`);
-			// 1st request => Attempt 1 failed. 5 retries left. 0 retries used.
-			// 2nd request => Attempt 2 failed. 4 retries left. 1 retries used.
+		onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesConsumed}) => {
+			console.log(`Attempt ${attemptNumber} failed. ${retriesLeft} retries left. ${retriesConsumed} retries consumed.`);
+			// 1st request => Attempt 1 failed. 5 retries left. 0 retries consumed.
+			// 2nd request => Attempt 2 failed. 4 retries left. 1 retries consumed.
 			// …
 		},
 		retries: 5
@@ -66,19 +70,15 @@ export type Options = {
 	```
 
 	If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
-
-	The callback is invoked regardless of the outcome of `shouldConsumeRetry`.
 	*/
 	readonly onFailedAttempt?: (context: RetryContext) => void | Promise<void>;
 
 	/**
 	Decide if a retry should occur based on the context. Returning true triggers a retry, false aborts with the error.
 
-	It is only called if `retries` and `maxRetryTime` have not been exhausted.
+	The function is called after `onFailedAttempt` and `shouldConsumeRetry`.
 
-	It is not called for `TypeError` (except network errors) and `AbortError`.
-
-	If the `shouldRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
+	The function is not called on `AbortError`, `TypeError` (except network errors), or if `retries` or `maxRetryTime` are exhausted.
 
 	@example
 	```
@@ -92,15 +92,19 @@ export type Options = {
 	```
 
 	In the example above, the operation will be retried unless the error is an instance of `CustomError`.
+
+	If the `shouldRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
 	readonly shouldRetry?: (context: RetryContext) => boolean | Promise<boolean>;
 
 	/**
-	Decide if the failure should consume a retry based on the context.
+	Decide if this failure should consume a retry from the `retries` budget.
 
-	Returning `false` treats the attempt as skipped: retries and backoff are not consumed, but `maxRetryTime` still applies.
+	When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`.
 
-	Receives the same `context` object as `shouldRetry` and `onFailedAttempt`.
+	The function is called after `onFailedAttempt`, but before `shouldRetry`.
+
+	The function is not called on `AbortError`.
 
 	@example
 	```
@@ -117,7 +121,7 @@ export type Options = {
 	});
 	```
 
-	In the example above, `RateLimitError`s will not count against the retry limit.
+	In the example above, `RateLimitError`s will not decrement the available `retries`.
 
 	If the `shouldConsumeRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
@@ -139,6 +143,8 @@ export type Options = {
 
 	/**
 	The number of milliseconds before starting the first retry.
+
+	Set this to `0` to retry immediately with no delay.
 
 	@default 1000
 	*/

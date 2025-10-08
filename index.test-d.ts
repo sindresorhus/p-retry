@@ -13,7 +13,7 @@ expectType<Promise<void>>(
 			expectType<RetryContext>(context);
 			expectType<number>(context.attemptNumber);
 			expectType<number>(context.retriesLeft);
-			expectType<number>(context.retriesUsed);
+			expectType<number>(context.retriesConsumed);
 		},
 	}),
 );
