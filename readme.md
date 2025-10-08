@@ -53,6 +53,12 @@ Type: `Function`
 
 Callback invoked on each failure. Receives a context object containing the error and retry state information.
 
+The function is called _before_ `shouldConsumeRetry` and `shouldRetry`, for all errors _except_ `AbortError`.
+
+The function is _not_ called on `AbortError`.
+
+If the function throws, all retries will be aborted and the original promise will reject with the thrown error.
+
 ```js
 import pRetry from 'p-retry';
 
@@ -95,21 +101,17 @@ const result = await pRetry(run, {
 });
 ```
 
-If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
-
-The callback is invoked regardless of the outcome of other callbacks (e.g `shouldRetry`, `shouldConsumeRetry`).
-
 ##### shouldRetry(context)
 
 Type: `Function`
 
-Decide if a retry should occur based on context. Returning true triggers a retry, false aborts with the error.
+Decide if a retry should occur based on context. Returning `true` triggers a retry, `false` aborts with the error.
 
-It is only called if `retries` and `maxRetryTime` have not been exhausted.
+The function is called _after_ `onFailedAttempt` and `shouldConsumeRetry`.
 
-It is not called for `TypeError` (except network errors) and `AbortError`.
+The function is _not_ called on `AbortError`, `TypeError` (except network errors), or if `retries` or `maxRetryTime` are exhausted.
 
-If the `shouldRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
+If the function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
 ```js
 import pRetry from 'p-retry';
@@ -129,7 +131,13 @@ Type: `Function`
 
 Decide if this failure should consume a retry from the `retries` budget.
 
-When `false` is returned, the error does not consume a retry or increment backoff values, but is still subject to `maxRetryTime`.
+When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`.
+
+The function is called _after_ `onFailedAttempt`, but before `shouldRetry`.
+
+The function is _not_ called on `AbortError`.
+
+If the function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
 ```js
 import pRetry from 'p-retry';
@@ -143,8 +151,6 @@ const result = await pRetry(run, {
 ```
 
 In the example above, `RateLimitError`s will not decrement the available `retries`.
-
-If the `shouldConsumeRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
 ##### retries
 
@@ -240,7 +246,7 @@ const response = await fetchWithRetry('https://sindresorhus.com/unicorn');
 ### AbortError(message)
 ### AbortError(error)
 
-Abort retrying and reject the promise.
+Abort retrying and reject the promise. No callbacks functions will be called.
 
 ### message
 
