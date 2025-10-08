@@ -95,22 +95,30 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		throw normalizedError;
 	}
 
-	if (!await options.shouldConsumeRetry(context)) {
-		if (calculateRemainingTime(startTime, maxRetryTime) <= 0) {
-			throw normalizedError;
-		}
-
-		return false;
-	}
-
-	if (normalizedError instanceof TypeError && !isNetworkError(normalizedError)) {
-		throw normalizedError;
-	}
+	const consumeRetry = await options.shouldConsumeRetry(context);
 
 	const remainingTime = calculateRemainingTime(startTime, maxRetryTime);
 
-	if (remainingTime <= 0 || retriesLeft <= 0 || !await options.shouldRetry(context)) {
+	if (remainingTime <= 0 || retriesLeft <= 0) {
 		throw normalizedError;
+	}
+
+	if (normalizedError instanceof TypeError && !isNetworkError(normalizedError)) {
+		if (consumeRetry) {
+			throw normalizedError;
+		}
+
+		options.signal?.throwIfAborted();
+		return false;
+	}
+
+	if (!await options.shouldRetry(context)) {
+		throw normalizedError;
+	}
+
+	if (!consumeRetry) {
+		options.signal?.throwIfAborted();
+		return false;
 	}
 
 	const delayTime = calculateDelay(retriesConsumed, options);

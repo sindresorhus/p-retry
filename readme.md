@@ -55,8 +55,6 @@ Callback invoked on each failure. Receives a context object containing the error
 
 The function is called _before_ `shouldConsumeRetry` and `shouldRetry`, for all errors _except_ `AbortError`.
 
-The function is _not_ called on `AbortError`.
-
 If the function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
 ```js

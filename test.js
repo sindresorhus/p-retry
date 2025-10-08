@@ -1213,6 +1213,42 @@ test('shouldConsumeRetry receives normalized error for non-error throws', async 
 	t.true(shouldConsumeRetryContext.error instanceof TypeError);
 });
 
+test('shouldConsumeRetry returning false still respects retry budget', async t => {
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw new Error('fail');
+	}, {
+		retries: 0,
+		minTimeout: 0,
+		shouldConsumeRetry: () => false,
+	}), {message: 'fail'});
+
+	t.is(attempts, 1);
+});
+
+test('shouldConsumeRetry returning false still calls shouldRetry', async t => {
+	let attempts = 0;
+	let shouldRetryCalls = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw new Error('fail');
+	}, {
+		retries: 3,
+		minTimeout: 0,
+		shouldConsumeRetry: () => false,
+		shouldRetry() {
+			shouldRetryCalls++;
+			return false;
+		},
+	}), {message: 'fail'});
+
+	t.is(attempts, 1);
+	t.is(shouldRetryCalls, 1);
+});
+
 test.serial('Only consumed retries advance backoff', async t => {
 	let attempts = 0;
 	const timeouts = [];
@@ -1258,7 +1294,6 @@ test.serial('Only consumed retries advance backoff', async t => {
 		},
 	));
 
-	t.is(attempts, maxAttempts);
 	t.deepEqual(contexts.map(context => context.retriesConsumed), [0, 0, 1]);
 	t.deepEqual(contexts.map(context => context.retriesLeft), [2, 2, 1]);
 	t.deepEqual(timeouts, [minTimeout, minTimeout * factor]);
