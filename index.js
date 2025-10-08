@@ -49,11 +49,11 @@ export class AbortError extends Error {
 	}
 }
 
-function calculateDelay(retries, options) {
-	const attempt = Math.max(1, retries + 1);
+function calculateDelay(retriesConsumed, options) {
+	const attempt = Math.max(1, retriesConsumed + 1);
 	const random = options.randomize ? (Math.random() + 1) : 1;
 
-	let timeout = Math.round(random * Math.max(options.minTimeout, 1) * (options.factor ** (attempt - 1)));
+	let timeout = Math.round(random * options.minTimeout * (options.factor ** (attempt - 1)));
 	timeout = Math.min(timeout, options.maxTimeout);
 
 	return timeout;
