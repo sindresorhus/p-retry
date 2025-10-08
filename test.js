@@ -489,7 +489,7 @@ test.serial('timeouts are incremental with factor', async t => {
 	t.deepEqual(captured, [100, 50, 25]);
 });
 
-test.serial('minTimeout: 0 never calls setTimeout', async t => {
+test.serial('setTimeout is never called with 0 minTimeout', async t => {
 	let called = false;
 	const originalSetTimeout = setTimeout;
 	globalThis.setTimeout = function_ => {
@@ -1213,26 +1213,53 @@ test('shouldConsumeRetry receives normalized error for non-error throws', async 
 	t.true(shouldConsumeRetryContext.error instanceof TypeError);
 });
 
-test('wont count skipped attempts as retries', async t => {
+test.serial('Only consumed retries advance backoff', async t => {
 	let attempts = 0;
-	const maxAttempts = 3;
+	const timeouts = [];
+	const maxAttempts = 4;
+	const minTimeout = 50;
+	const factor = 2;
+	const contexts = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms) => {
+		timeouts.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
 
 	await t.throwsAsync(pRetry(
 		async () => {
 			attempts++;
 
+			if (attempts === 1) {
+				throw new TypeError('skip');
+			}
+
 			if (attempts === maxAttempts) {
 				throw new AbortError('stop');
 			}
 
-			throw new Error('skip');
+			throw new Error('test');
 		},
 		{
-			retries: 0,
-			shouldConsumeRetry: ({error}) => error.message !== 'skip',
-			minTimeout: 0, // Speed up test
+			retries: 2,
+			onFailedAttempt(context) {
+				contexts.push(context);
+			},
+			shouldConsumeRetry({error}) {
+				return error.message !== 'skip';
+			},
+			factor,
+			minTimeout,
 		},
 	));
 
 	t.is(attempts, maxAttempts);
+	t.deepEqual(contexts.map(context => context.retriesConsumed), [0, 0, 1]);
+	t.deepEqual(contexts.map(context => context.retriesLeft), [2, 2, 1]);
+	t.deepEqual(timeouts, [minTimeout, minTimeout * factor]);
 });
