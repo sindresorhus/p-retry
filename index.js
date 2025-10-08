@@ -67,7 +67,7 @@ function calculateRemainingTime(start, max) {
 	return max - (Date.now() - start);
 }
 
-async function onAttemptFailure({error, attemptNumber, retriesUsed, startTime, options}) {
+async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTime, options}) {
 	const normalizedError = error instanceof Error
 		? error
 		: new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`);
@@ -77,7 +77,7 @@ async function onAttemptFailure({error, attemptNumber, retriesUsed, startTime, o
 	}
 
 	const retriesLeft = Number.isFinite(options.retries)
-		? Math.max(0, options.retries - retriesUsed)
+		? Math.max(0, options.retries - retriesConsumed)
 		: options.retries;
 
 	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
@@ -86,7 +86,7 @@ async function onAttemptFailure({error, attemptNumber, retriesUsed, startTime, o
 		error: normalizedError,
 		attemptNumber,
 		retriesLeft,
-		retriesUsed,
+		retriesConsumed,
 	});
 
 	await options.onFailedAttempt(context);
@@ -95,7 +95,7 @@ async function onAttemptFailure({error, attemptNumber, retriesUsed, startTime, o
 		throw normalizedError;
 	}
 
-	if (await options.shouldSkip(context)) {
+	if (!await options.shouldConsumeRetry(context)) {
 		if (calculateRemainingTime(startTime, maxRetryTime) <= 0) {
 			throw normalizedError;
 		}
@@ -113,7 +113,7 @@ async function onAttemptFailure({error, attemptNumber, retriesUsed, startTime, o
 		throw normalizedError;
 	}
 
-	const delayTime = calculateDelay(retriesUsed, options);
+	const delayTime = calculateDelay(retriesConsumed, options);
 	const finalDelay = Math.min(delayTime, remainingTime);
 
 	if (finalDelay > 0) {
@@ -159,7 +159,7 @@ export default async function pRetry(input, options = {}) {
 	options.randomize ??= false;
 	options.onFailedAttempt ??= () => {};
 	options.shouldRetry ??= () => true;
-	options.shouldSkip ??= () => false;
+	options.shouldConsumeRetry ??= () => true;
 
 	// Validate numeric options and normalize edge cases
 	validateNumberOption('factor', options.factor, {min: 0, allowInfinity: false});
@@ -175,10 +175,10 @@ export default async function pRetry(input, options = {}) {
 	options.signal?.throwIfAborted();
 
 	let attemptNumber = 0;
-	let retriesUsed = 0;
+	let retriesConsumed = 0;
 	const startTime = Date.now();
 
-	while (Number.isFinite(options.retries) ? retriesUsed <= options.retries : true) {
+	while (Number.isFinite(options.retries) ? retriesConsumed <= options.retries : true) {
 		attemptNumber++;
 
 		try {
@@ -193,11 +193,11 @@ export default async function pRetry(input, options = {}) {
 			if (await onAttemptFailure({
 				error,
 				attemptNumber,
-				retriesUsed,
+				retriesConsumed,
 				startTime,
 				options,
 			})) {
-				retriesUsed++;
+				retriesConsumed++;
 			}
 		}
 	}

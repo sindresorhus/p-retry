@@ -25,10 +25,10 @@ expectType<Promise<string>>(
 
 expectType<Promise<string>>(
 	pRetry(async () => 'value', {
-		async shouldSkip(context) {
+		async shouldConsumeRetry(context) {
 			expectType<RetryContext>(context);
 			expectType<Error>(context.error);
-			return false;
+			return true;
 		},
 		minTimeout: 0,
 	}),

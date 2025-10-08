@@ -67,10 +67,10 @@ const run = async () => {
 };
 
 const result = await pRetry(run, {
-	onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesUsed}) => {
-		console.log(`Attempt ${attemptNumber} failed. ${retriesLeft} retries left. ${retriesUsed} retries used.`);
-		// 1st request => Attempt 1 failed. 5 retries left. 0 retries used.
-		// 2nd request => Attempt 2 failed. 4 retries left. 1 retries used.
+	onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesConsumed}) => {
+		console.log(`Attempt ${attemptNumber} failed. ${retriesLeft} retries left. ${retriesConsumed} retries consumed.`);
+		// 1st request => Attempt 1 failed. 5 retries left. 0 retries consumed.
+		// 2nd request => Attempt 2 failed. 4 retries left. 1 retries consumed.
 		// …
 	},
 	retries: 5
@@ -97,7 +97,7 @@ const result = await pRetry(run, {
 
 If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
-The callback is invoked regardless of the outcome of `shouldSkip`.
+The callback is invoked regardless of the outcome of other callbacks (e.g `shouldRetry`, `shouldConsumeRetry`).
 
 ##### shouldRetry(context)
 
@@ -123,13 +123,13 @@ const result = await pRetry(run, {
 
 In the example above, the operation will be retried unless the error is an instance of `CustomError`.
 
-##### shouldSkip(context)
+##### shouldConsumeRetry(context)
 
 Type: `Function`
 
-Decide if an error should be skipped.
+Decide if this failure should consume a retry from the `retries` budget.
 
-Skipped errors do not expend retries or increment backoff, but are still subject to `maxRetryTime`.
+When `false` is returned, the error does not consume a retry or increment backoff values, but is still subject to `maxRetryTime`.
 
 ```js
 import pRetry from 'p-retry';
@@ -138,13 +138,13 @@ const run = async () => { … };
 
 const result = await pRetry(run, {
 	retries: 2,
-	shouldSkip: ({error, retriesLeft}) => error instanceof RateLimitError,
+	shouldConsumeRetry: ({error, retriesLeft}) => !(error instanceof RateLimitError),
 });
 ```
 
-In the example above, `RateLimitError`s will not count against the retry limit.
+In the example above, `RateLimitError`s will not decrement the available `retries`.
 
-If the `shouldSkip` function throws, all retries will be aborted and the original promise will reject with the thrown error.
+If the `shouldConsumeRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
 ##### retries
 

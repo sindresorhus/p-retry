@@ -67,7 +67,7 @@ export type Options = {
 
 	If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
-	The callback is invoked regardless of the outcome of `shouldSkip`.
+	The callback is invoked regardless of the outcome of `shouldConsumeRetry`.
 	*/
 	readonly onFailedAttempt?: (context: RetryContext) => void | Promise<void>;
 
@@ -96,9 +96,9 @@ export type Options = {
 	readonly shouldRetry?: (context: RetryContext) => boolean | Promise<boolean>;
 
 	/**
-	Decide if an error should be considered skipped based on the context.
+	Decide if the failure should consume a retry based on the context.
 
-	Skipped errors do not expend retries or increment backoff, but are still subject to `maxRetryTime`.
+	Returning `false` treats the attempt as skipped: retries and backoff are not consumed, but `maxRetryTime` still applies.
 
 	Receives the same `context` object as `shouldRetry` and `onFailedAttempt`.
 
@@ -110,18 +110,18 @@ export type Options = {
 
 	const result = await pRetry(run, {
 		retries: 2,
-		shouldSkip: ({error, retriesLeft}) => {
+		shouldConsumeRetry: ({error, retriesLeft}) => {
 			console.log(`Retries left: ${retriesLeft}`);
-			return error instanceof RateLimitError;
+			return !(error instanceof RateLimitError);
 		},
 	});
 	```
 
 	In the example above, `RateLimitError`s will not count against the retry limit.
 
-	If the `shouldSkip` function throws, all retries will be aborted and the original promise will reject with the thrown error.
+	If the `shouldConsumeRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
-	readonly shouldSkip?: (context: RetryContext) => boolean | Promise<boolean>;
+	readonly shouldConsumeRetry?: (context: RetryContext) => boolean | Promise<boolean>;
 
 	/**
 	The maximum amount of times to retry the operation.

@@ -550,7 +550,7 @@ test.serial('skipped attempts do not impact backoff', async t => {
 			minTimeout: 100,
 			maxTimeout: Number.POSITIVE_INFINITY,
 			randomize: false,
-			shouldSkip: ({error}) => error.message === 'skip',
+			shouldConsumeRetry: ({error}) => error.message !== 'skip',
 		},
 	));
 
@@ -560,7 +560,7 @@ test.serial('skipped attempts do not impact backoff', async t => {
 	t.is(attempts, 5);
 });
 
-test('shouldSkip time counts toward maxRetryTime', async t => {
+test('shouldConsumeRetry time counts toward maxRetryTime', async t => {
 	let attempts = 0;
 	const start = Date.now();
 	const maxRetryTime = 200;
@@ -573,9 +573,9 @@ test('shouldSkip time counts toward maxRetryTime', async t => {
 		{
 			maxRetryTime,
 			minTimeout: 0,
-			async shouldSkip() {
+			async shouldConsumeRetry() {
 				await delay(300);
-				return false;
+				return true;
 			},
 		},
 	));
@@ -1106,26 +1106,26 @@ test('retriesLeft is Infinity when retries is Infinity', async t => {
 	t.is(observed.length, maxAttempts);
 });
 
-test('shouldSkip receives normalized error for non-error throws', async t => {
-	let shouldSkipContext;
+test('shouldConsumeRetry receives normalized error for non-error throws', async t => {
+	let shouldConsumeRetryContext;
 
 	await t.throwsAsync(pRetry(async () => {
 		throw 'foo'; // eslint-disable-line no-throw-literal
 	}, {
 		retries: 0,
 		minTimeout: 0,
-		shouldSkip(context) {
-			shouldSkipContext = context;
-			return false;
+		shouldConsumeRetry(context) {
+			shouldConsumeRetryContext = context;
+			return true;
 		},
 	}), {
 		message: /Non-error/,
 	});
 
-	t.true(shouldSkipContext.error instanceof TypeError);
+	t.true(shouldConsumeRetryContext.error instanceof TypeError);
 });
 
-test('wont count skips as attempt', async t => {
+test('wont count skipped attempts as retries', async t => {
 	let attempts = 0;
 	const maxAttempts = 3;
 
@@ -1141,7 +1141,7 @@ test('wont count skips as attempt', async t => {
 		},
 		{
 			retries: 0,
-			shouldSkip: ({error}) => error.message === 'skip',
+			shouldConsumeRetry: ({error}) => error.message !== 'skip',
 			minTimeout: 0, // Speed up test
 		},
 	));
