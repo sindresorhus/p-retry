@@ -465,9 +465,9 @@ test.serial('timeouts are incremental with factor', async t => {
 });
 
 test.serial('minTimeout: 0 never calls setTimeout', async t => {
-	const called = false;
+	let called = false;
 	const originalSetTimeout = setTimeout;
-	globalThis.setTimeout = (function_, ms) => {
+	globalThis.setTimeout = function_ => {
 		called = true;
 		return originalSetTimeout(function_, 0);
 	};
