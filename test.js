@@ -178,6 +178,31 @@ test('shouldRetry is not called for AbortError', async t => {
 	t.is(shouldRetryCalled, 0);
 });
 
+test('AbortError short-circuits callbacks', async t => {
+	const originalError = new Error('stop');
+	let attempts = 0;
+
+	const error = await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw new AbortError(originalError);
+	}, {
+		onFailedAttempt() {
+			t.fail('onFailedAttempt should not fire');
+		},
+		shouldRetry() {
+			t.fail('shouldRetry should not fire');
+		},
+		shouldConsumeRetry() {
+			t.fail('shouldConsumeRetry should not fire');
+		},
+		retries: 5,
+		minTimeout: 0,
+	}));
+
+	t.is(error, originalError);
+	t.is(attempts, 1);
+});
+
 // AVA does not support DOMException.
 // test('aborts with an AbortSignal', async t => {
 // 	let index = 0;
