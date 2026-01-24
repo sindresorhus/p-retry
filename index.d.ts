@@ -15,6 +15,15 @@ export type RetryContext = {
 	readonly attemptNumber: number;
 	readonly retriesLeft: number;
 	readonly retriesConsumed: number;
+
+	/**
+	The delay in milliseconds before the next retry attempt.
+
+	This is calculated based on `minTimeout`, `factor`, `maxTimeout`, and `randomize` options.
+
+	Note: The actual delay may be shorter if it would exceed `maxRetryTime`.
+	*/
+	readonly retryDelay: number;
 };
 
 export type Options = {
@@ -40,10 +49,10 @@ export type Options = {
 	};
 
 	const result = await pRetry(run, {
-		onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesConsumed}) => {
-			console.log(`Attempt ${attemptNumber} failed. ${retriesLeft} retries left. ${retriesConsumed} retries consumed.`);
-			// 1st request => Attempt 1 failed. 5 retries left. 0 retries consumed.
-			// 2nd request => Attempt 2 failed. 4 retries left. 1 retries consumed.
+		onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesConsumed, retryDelay}) => {
+			console.log(`Attempt ${attemptNumber} failed. Retrying in ${retryDelay}ms. ${retriesLeft} retries left.`);
+			// 1st request => Attempt 1 failed. Retrying in 1000ms. 5 retries left.
+			// 2nd request => Attempt 2 failed. Retrying in 2000ms. 4 retries left.
 			// …
 		},
 		retries: 5

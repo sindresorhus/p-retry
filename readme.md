@@ -71,10 +71,10 @@ const run = async () => {
 };
 
 const result = await pRetry(run, {
-	onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesConsumed}) => {
-		console.log(`Attempt ${attemptNumber} failed. ${retriesLeft} retries left. ${retriesConsumed} retries consumed.`);
-		// 1st request => Attempt 1 failed. 5 retries left. 0 retries consumed.
-		// 2nd request => Attempt 2 failed. 4 retries left. 1 retries consumed.
+	onFailedAttempt: ({error, attemptNumber, retriesLeft, retriesConsumed, retryDelay}) => {
+		console.log(`Attempt ${attemptNumber} failed. Retrying in ${retryDelay}ms. ${retriesLeft} retries left.`);
+		// 1st request => Attempt 1 failed. Retrying in 1000ms. 5 retries left.
+		// 2nd request => Attempt 2 failed. Retrying in 2000ms. 4 retries left.
 		// …
 	},
 	retries: 5
@@ -82,6 +82,13 @@ const result = await pRetry(run, {
 
 console.log(result);
 ```
+
+The `context` object contains:
+- `error` - The error that was thrown
+- `attemptNumber` - The attempt number (starts at 1)
+- `retriesLeft` - Number of retries remaining
+- `retriesConsumed` - Number of retries consumed so far
+- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`)
 
 The `onFailedAttempt` function can return a promise. For example, to add a [delay](https://github.com/sindresorhus/delay):
 
@@ -244,7 +251,7 @@ const response = await fetchWithRetry('https://sindresorhus.com/unicorn');
 ### AbortError(message)
 ### AbortError(error)
 
-Abort retrying and reject the promise. No callbacks functions will be called.
+Abort retrying and reject the promise. No callback functions will be called.
 
 ### message
 

@@ -82,11 +82,15 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 
 	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
 
+	// Calculate the delay upfront so it can be included in the context
+	const delayTime = calculateDelay(retriesConsumed, options);
+
 	const context = Object.freeze({
 		error: normalizedError,
 		attemptNumber,
 		retriesLeft,
 		retriesConsumed,
+		retryDelay: delayTime,
 	});
 
 	await options.onFailedAttempt(context);
@@ -121,7 +125,6 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		return false;
 	}
 
-	const delayTime = calculateDelay(retriesConsumed, options);
 	const finalDelay = Math.min(delayTime, remainingTime);
 
 	options.signal?.throwIfAborted();

@@ -1,7 +1,6 @@
 import process from 'node:process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {performance} from 'node:perf_hooks';
 import {execa} from 'execa';
 import test from 'ava';
 import delay from 'delay';
@@ -1265,6 +1264,35 @@ test('shouldConsumeRetry returning false still calls shouldRetry', async t => {
 
 	t.is(attempts, 1);
 	t.is(shouldRetryCalls, 1);
+});
+
+test.serial('retryDelay is provided in onFailedAttempt context', async t => {
+	const retryDelays = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, _ms) => originalSetTimeout(function_, 0);
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	await t.throwsAsync(pRetry(
+		async () => {
+			throw new Error('test');
+		},
+		{
+			retries: 3,
+			factor: 2,
+			minTimeout: 100,
+			randomize: false,
+			onFailedAttempt({retryDelay}) {
+				retryDelays.push(retryDelay);
+			},
+		},
+	));
+
+	// Verify retryDelay follows exponential backoff formula
+	t.deepEqual(retryDelays, [100, 200, 400, 800]);
 });
 
 test.serial('Only consumed retries advance backoff', async t => {
