@@ -129,12 +129,7 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	}
 
 	if (normalizedError instanceof TypeError && !isNetworkError(normalizedError)) {
-		if (consumeRetry) {
-			throw normalizedError;
-		}
-
-		options.signal?.throwIfAborted();
-		return false;
+		throw normalizedError;
 	}
 
 	if (!await options.shouldRetry(context)) {

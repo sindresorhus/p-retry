@@ -221,6 +221,8 @@ Returns a `Promise` that is fulfilled when calling `input` returns a fulfilled p
 
 Does not retry on most `TypeErrors`, with the exception of network errors. This is done on a best case basis as different browsers have different [messages](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#Checking_that_the_fetch_was_successful) to indicate this. See [whatwg/fetch#526 (comment)](https://github.com/whatwg/fetch/issues/526#issuecomment-554604080)
 
+Non-network `TypeError`s always abort retries, even if `shouldConsumeRetry` or `shouldRetry` would otherwise allow another attempt.
+
 @param input - Receives the number of attempts as the first argument and is expected to return a `Promise` or any value.
 @param options - Options for configuring the retry behavior.
 

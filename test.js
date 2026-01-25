@@ -82,6 +82,24 @@ test('shouldRetry is not called for non-network TypeError', async t => {
 	t.is(shouldRetryCalled, 0);
 });
 
+test('does not retry non-network TypeError when shouldConsumeRetry returns false', async t => {
+	const typeErrorFixture = new TypeError('type-error-fixture');
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw typeErrorFixture;
+	}, {
+		shouldConsumeRetry() {
+			return false;
+		},
+		retries: 5,
+		minTimeout: 0,
+	}), {is: typeErrorFixture});
+
+	t.is(attempts, 1);
+});
+
 test('retry on TypeError - failed to fetch', async t => {
 	const typeErrorFixture = new TypeError('Failed to fetch');
 	let index = 0;
@@ -1362,7 +1380,7 @@ test.serial('Only consumed retries advance backoff', async t => {
 			attempts++;
 
 			if (attempts === 1) {
-				throw new TypeError('skip');
+				throw new Error('skip');
 			}
 
 			if (attempts === maxAttempts) {
