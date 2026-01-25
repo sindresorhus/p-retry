@@ -268,12 +268,16 @@ test('shouldRetry controls retry behavior', async t => {
 	t.is(index, 3);
 });
 
-test('onFailedAttempt then shouldRetry order', async t => {
+test('shouldConsumeRetry then onFailedAttempt then shouldRetry order', async t => {
 	const order = [];
 
 	await t.throwsAsync(pRetry(async () => {
 		throw new Error('order');
 	}, {
+		shouldConsumeRetry() {
+			order.push('shouldConsumeRetry');
+			return true;
+		},
 		onFailedAttempt() {
 			order.push('onFailedAttempt');
 		},
@@ -283,7 +287,7 @@ test('onFailedAttempt then shouldRetry order', async t => {
 		},
 	}));
 
-	t.deepEqual(order, ['onFailedAttempt', 'shouldRetry']);
+	t.deepEqual(order, ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry']);
 });
 
 test('handles async shouldRetry with maxRetryTime', async t => {
@@ -1266,6 +1270,24 @@ test('shouldConsumeRetry returning false still calls shouldRetry', async t => {
 	t.is(shouldRetryCalls, 1);
 });
 
+test('shouldConsumeRetry sees retryDelay as 0 when retriesLeft is 0', async t => {
+	let retryDelay;
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 0,
+		minTimeout: 100,
+		randomize: false,
+		shouldConsumeRetry(context) {
+			retryDelay = context.retryDelay;
+			return true;
+		},
+	}));
+
+	t.is(retryDelay, 0);
+});
+
 test.serial('retryDelay is provided in onFailedAttempt context', async t => {
 	const retryDelays = [];
 	const originalSetTimeout = setTimeout;
@@ -1291,8 +1313,30 @@ test.serial('retryDelay is provided in onFailedAttempt context', async t => {
 		},
 	));
 
-	// Verify retryDelay follows exponential backoff formula
-	t.deepEqual(retryDelays, [100, 200, 400, 800]);
+	// Verify retryDelay follows exponential backoff formula, ending with 0 when no retry remains
+	t.deepEqual(retryDelays, [100, 200, 400, 0]);
+});
+
+test.serial('retryDelay is zero when shouldConsumeRetry skips the retry', async t => {
+	const retryDelays = [];
+
+	await t.throwsAsync(pRetry(
+		async () => {
+			throw new Error('test');
+		},
+		{
+			retries: 2,
+			minTimeout: 100,
+			randomize: false,
+			shouldConsumeRetry: () => false,
+			shouldRetry: () => false,
+			onFailedAttempt({retryDelay}) {
+				retryDelays.push(retryDelay);
+			},
+		},
+	));
+
+	t.deepEqual(retryDelays, [0]);
 });
 
 test.serial('Only consumed retries advance backoff', async t => {

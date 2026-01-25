@@ -22,6 +22,7 @@ export type RetryContext = {
 	This is calculated based on `minTimeout`, `factor`, `maxTimeout`, and `randomize` options.
 
 	Note: The actual delay may be shorter if it would exceed `maxRetryTime`.
+	This is `0` when the retry is skipped or when no retry will occur.
 	*/
 	readonly retryDelay: number;
 };
@@ -30,7 +31,7 @@ export type Options = {
 	/**
 	Callback invoked on each failure. Receives a context object containing the error and retry state information.
 
-	The function is called before `shouldConsumeRetry` and `shouldRetry`, for all errors except `AbortError`.
+	The function is called after `shouldConsumeRetry` and before `shouldRetry`, for all errors except `AbortError`.
 
 	The function is not called on `AbortError`.
 
@@ -111,7 +112,7 @@ export type Options = {
 
 	When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`.
 
-	The function is called after `onFailedAttempt`, but before `shouldRetry`.
+	The function is called before `onFailedAttempt` and `shouldRetry`.
 
 	The function is not called on `AbortError`.
 

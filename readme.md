@@ -53,7 +53,7 @@ Type: `Function`
 
 Callback invoked on each failure. Receives a context object containing the error and retry state information.
 
-The function is called _before_ `shouldConsumeRetry` and `shouldRetry`, for all errors _except_ `AbortError`.
+The function is called _after_ `shouldConsumeRetry` and _before_ `shouldRetry`, for all errors _except_ `AbortError`.
 
 If the function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
@@ -88,7 +88,7 @@ The `context` object contains:
 - `attemptNumber` - The attempt number (starts at 1)
 - `retriesLeft` - Number of retries remaining
 - `retriesConsumed` - Number of retries consumed so far
-- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`)
+- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`). This is `0` when the retry is skipped or when no retry will occur.
 
 The `onFailedAttempt` function can return a promise. For example, to add a [delay](https://github.com/sindresorhus/delay):
 
@@ -138,7 +138,7 @@ Decide if this failure should consume a retry from the `retries` budget.
 
 When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`.
 
-The function is called _after_ `onFailedAttempt`, but before `shouldRetry`.
+The function is called _before_ `onFailedAttempt` and `shouldRetry`.
 
 The function is _not_ called on `AbortError`.
 

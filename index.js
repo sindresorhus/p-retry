@@ -81,16 +81,39 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		: options.retries;
 
 	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
-
-	// Calculate the delay upfront so it can be included in the context
 	const delayTime = calculateDelay(retriesConsumed, options);
+	const remainingTimeBeforeCallbacks = calculateRemainingTime(startTime, maxRetryTime);
 
+	if (remainingTimeBeforeCallbacks <= 0) {
+		const context = Object.freeze({
+			error: normalizedError,
+			attemptNumber,
+			retriesLeft,
+			retriesConsumed,
+			retryDelay: 0,
+		});
+
+		await options.onFailedAttempt(context);
+
+		throw normalizedError;
+	}
+
+	const consumeRetryContext = Object.freeze({
+		error: normalizedError,
+		attemptNumber,
+		retriesLeft,
+		retriesConsumed,
+		retryDelay: retriesLeft > 0 ? delayTime : 0,
+	});
+
+	const consumeRetry = await options.shouldConsumeRetry(consumeRetryContext);
+	const effectiveDelay = consumeRetry && retriesLeft > 0 ? delayTime : 0;
 	const context = Object.freeze({
 		error: normalizedError,
 		attemptNumber,
 		retriesLeft,
 		retriesConsumed,
-		retryDelay: delayTime,
+		retryDelay: effectiveDelay,
 	});
 
 	await options.onFailedAttempt(context);
@@ -98,8 +121,6 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	if (calculateRemainingTime(startTime, maxRetryTime) <= 0) {
 		throw normalizedError;
 	}
-
-	const consumeRetry = await options.shouldConsumeRetry(context);
 
 	const remainingTime = calculateRemainingTime(startTime, maxRetryTime);
 
@@ -125,7 +146,7 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		return false;
 	}
 
-	const finalDelay = Math.min(delayTime, remainingTime);
+	const finalDelay = Math.min(effectiveDelay, remainingTime);
 
 	options.signal?.throwIfAborted();
 
