@@ -22,7 +22,7 @@ export type RetryContext = {
 	This is calculated based on `minTimeout`, `factor`, `maxTimeout`, and `randomize` options.
 
 	Note: The actual delay may be shorter if it would exceed `maxRetryTime`.
-	This is `0` when the retry is skipped or when no retry will occur.
+	This is `0` when the retry is skipped or when no retry will occur based on the checks completed before the current callback runs.
 	*/
 	readonly retryDelay: number;
 };

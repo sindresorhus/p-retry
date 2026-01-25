@@ -82,6 +82,25 @@ test('shouldRetry is not called for non-network TypeError', async t => {
 	t.is(shouldRetryCalled, 0);
 });
 
+test('async shouldRetry respects maxRetryTime after callback', async t => {
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw new Error('fail');
+	}, {
+		retries: 5,
+		maxRetryTime: 50,
+		minTimeout: 0,
+		async shouldRetry() {
+			await delay(100);
+			return true;
+		},
+	}));
+
+	t.is(attempts, 1);
+});
+
 test('does not retry non-network TypeError when shouldConsumeRetry returns false', async t => {
 	const typeErrorFixture = new TypeError('type-error-fixture');
 	let attempts = 0;
@@ -98,6 +117,26 @@ test('does not retry non-network TypeError when shouldConsumeRetry returns false
 	}), {is: typeErrorFixture});
 
 	t.is(attempts, 1);
+});
+
+test('throws on invalid callback options', async t => {
+	await t.throwsAsync(pRetry(async () => {}, {
+		onFailedAttempt: 1,
+	}), {
+		message: 'Expected `onFailedAttempt` to be a function.',
+	});
+
+	await t.throwsAsync(pRetry(async () => {}, {
+		shouldRetry: 1,
+	}), {
+		message: 'Expected `shouldRetry` to be a function.',
+	});
+
+	await t.throwsAsync(pRetry(async () => {}, {
+		shouldConsumeRetry: 1,
+	}), {
+		message: 'Expected `shouldConsumeRetry` to be a function.',
+	});
 });
 
 test('retry on TypeError - failed to fetch', async t => {

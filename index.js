@@ -32,6 +32,16 @@ function validateNumberOption(name, value, {min = 0, allowInfinity = false} = {}
 	}
 }
 
+function validateFunctionOption(name, value) {
+	if (value === undefined) {
+		return;
+	}
+
+	if (typeof value !== 'function') {
+		throw new TypeError(`Expected \`${name}\` to be a function.`);
+	}
+}
+
 export class AbortError extends Error {
 	constructor(message) {
 		super();
@@ -65,6 +75,31 @@ function calculateRemainingTime(start, max) {
 	}
 
 	return max - (performance.now() - start);
+}
+
+async function delayForRetry(delay, options) {
+	if (delay <= 0) {
+		return;
+	}
+
+	await new Promise((resolve, reject) => {
+		const onAbort = () => {
+			clearTimeout(timeoutToken);
+			options.signal?.removeEventListener('abort', onAbort);
+			reject(options.signal.reason);
+		};
+
+		const timeoutToken = setTimeout(() => {
+			options.signal?.removeEventListener('abort', onAbort);
+			resolve();
+		}, delay);
+
+		if (options.unref) {
+			timeoutToken.unref?.();
+		}
+
+		options.signal?.addEventListener('abort', onAbort, {once: true});
+	});
 }
 
 async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTime, options}) {
@@ -136,35 +171,22 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		throw normalizedError;
 	}
 
+	const remainingTimeAfterShouldRetry = calculateRemainingTime(startTime, maxRetryTime);
+
+	if (remainingTimeAfterShouldRetry <= 0) {
+		throw normalizedError;
+	}
+
 	if (!consumeRetry) {
 		options.signal?.throwIfAborted();
 		return false;
 	}
 
-	const finalDelay = Math.min(effectiveDelay, remainingTime);
+	const finalDelay = Math.min(effectiveDelay, remainingTimeAfterShouldRetry);
 
 	options.signal?.throwIfAborted();
 
-	if (finalDelay > 0) {
-		await new Promise((resolve, reject) => {
-			const onAbort = () => {
-				clearTimeout(timeoutToken);
-				options.signal?.removeEventListener('abort', onAbort);
-				reject(options.signal.reason);
-			};
-
-			const timeoutToken = setTimeout(() => {
-				options.signal?.removeEventListener('abort', onAbort);
-				resolve();
-			}, finalDelay);
-
-			if (options.unref) {
-				timeoutToken.unref?.();
-			}
-
-			options.signal?.addEventListener('abort', onAbort, {once: true});
-		});
-	}
+	await delayForRetry(finalDelay, options);
 
 	options.signal?.throwIfAborted();
 
@@ -191,6 +213,9 @@ export default async function pRetry(input, options = {}) {
 	options.shouldConsumeRetry ??= () => true;
 
 	// Validate numeric options and normalize edge cases
+	validateFunctionOption('onFailedAttempt', options.onFailedAttempt);
+	validateFunctionOption('shouldRetry', options.shouldRetry);
+	validateFunctionOption('shouldConsumeRetry', options.shouldConsumeRetry);
 	validateNumberOption('factor', options.factor, {min: 0, allowInfinity: false});
 	validateNumberOption('minTimeout', options.minTimeout, {min: 0, allowInfinity: false});
 	validateNumberOption('maxTimeout', options.maxTimeout, {min: 0, allowInfinity: true});

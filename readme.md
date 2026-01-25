@@ -90,7 +90,7 @@ The `context` object contains:
 - `attemptNumber` - The attempt number (starts at 1)
 - `retriesLeft` - Number of retries remaining
 - `retriesConsumed` - Number of retries consumed so far
-- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`). This is `0` when the retry is skipped or when no retry will occur.
+- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`). This is `0` when the retry is skipped or when no retry will occur based on the checks completed before the current callback runs.
 
 The `onFailedAttempt` function can return a promise. For example, to add a [delay](https://github.com/sindresorhus/delay):
 
