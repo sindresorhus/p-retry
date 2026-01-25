@@ -17,7 +17,7 @@
 	},
 	"sideEffects": false,
 	"engines": {
-		"node": ">=20"
+		"node": ">=22"
 	},
 	"scripts": {
 		"test": "xo && ava && tsd"
@@ -46,13 +46,14 @@
 		"bluebird"
 	],
 	"dependencies": {
-		"is-network-error": "^1.1.0"
+		"is-network-error": "^1.3.0"
 	},
 	"devDependencies": {
-		"ava": "^6.3.0",
-		"delay": "^6.0.0",
-		"tsd": "^0.32.0",
-		"xo": "^0.60.0"
+		"ava": "^6.4.1",
+		"delay": "^7.0.0",
+		"execa": "^9.6.1",
+		"tsd": "^0.33.0",
+		"xo": "^1.2.3"
 	},
 	"xo": {
 		"rules": {
