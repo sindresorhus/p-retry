@@ -244,7 +244,7 @@ const response = await fetchWithRetry('https://sindresorhus.com/unicorn');
 ### AbortError(message)
 ### AbortError(error)
 
-Abort retrying and reject the promise. No callbacks functions will be called.
+Abort retrying and reject the promise. No callback functions will be called.
 
 ### message
 
