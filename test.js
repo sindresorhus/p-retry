@@ -932,6 +932,20 @@ test('throws on NaN retries', async t => {
 	);
 });
 
+test('preserves the last error for fractional retries', async t => {
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw fixtureError;
+	}, {
+		retries: 0.5,
+		minTimeout: 0,
+	}), {is: fixtureError});
+
+	t.is(attempts, 2);
+});
+
 test('handles zero retries', async t => {
 	let attempts = 0;
 
