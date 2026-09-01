@@ -9,6 +9,10 @@ function validateRetries(retries) {
 		if (Number.isNaN(retries)) {
 			throw new TypeError('Expected `retries` to be a valid number or Infinity, got NaN.');
 		}
+
+		if (Number.isFinite(retries) && !Number.isInteger(retries)) {
+			throw new TypeError('Expected `retries` to be a non-negative integer or Infinity.');
+		}
 	} else if (retries !== undefined) {
 		throw new TypeError('Expected `retries` to be a number or Infinity.');
 	}

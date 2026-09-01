@@ -164,7 +164,7 @@ In the example above, `RateLimitError`s will not decrement the available `retrie
 Type: `number`\
 Default: `10`
 
-The maximum amount of times to retry the operation.
+The maximum amount of times to retry the operation. Must be a non-negative integer or `Infinity`.
 
 ##### factor
 

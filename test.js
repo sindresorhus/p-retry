@@ -932,6 +932,19 @@ test('throws on NaN retries', async t => {
 	);
 });
 
+test('throws on fractional retries', async t => {
+	let inputCalled = false;
+
+	await t.throwsAsync(pRetry(() => {
+		inputCalled = true;
+	}, {retries: 0.5}), {
+		instanceOf: TypeError,
+		message: 'Expected `retries` to be a non-negative integer or Infinity.',
+	});
+
+	t.false(inputCalled);
+});
+
 test('handles zero retries', async t => {
 	let attempts = 0;
 

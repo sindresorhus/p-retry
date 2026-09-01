@@ -138,7 +138,7 @@ export type Options = {
 	readonly shouldConsumeRetry?: (context: RetryContext) => boolean | Promise<boolean>;
 
 	/**
-	The maximum amount of times to retry the operation.
+	The maximum amount of times to retry the operation. Must be a non-negative integer or `Infinity`.
 
 	@default 10
 	*/
