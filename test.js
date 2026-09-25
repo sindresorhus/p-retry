@@ -96,6 +96,25 @@ test('no retry on TypeError', async t => {
 	t.is(index, 1);
 });
 
+test('a shouldConsumeRetry that returns nothing still consumes a retry', async t => {
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw new Error('fail');
+	}, {
+		retries: 2,
+		minTimeout: 0,
+		// A logging-only callback with the `return` forgotten, so it resolves to `undefined`.
+		async shouldConsumeRetry({retriesLeft}) {
+			attempts += retriesLeft - 1;
+		},
+	}), {message: 'fail'});
+
+	// `retries` stays the hard bound instead of being ignored forever.
+	t.is(attempts, 3);
+});
+
 test('shouldRetry is not called for non-network TypeError', async t => {
 	const typeErrorFixture = new TypeError('type-error-fixture');
 	let shouldRetryCalled = 0;
@@ -147,6 +166,19 @@ test('does not retry non-network TypeError when shouldConsumeRetry returns false
 	}), {is: typeErrorFixture});
 
 	t.is(attempts, 1);
+});
+
+test('throws on non-boolean randomize and unref', async t => {
+	// `randomize: 'false'` from an env var or a CLI flag is truthy, so it would turn jitter on.
+	await t.throwsAsync(pRetry(async () => {}, {randomize: 'yes'}), {
+		instanceOf: TypeError,
+		message: 'Expected `randomize` to be a boolean.',
+	});
+
+	await t.throwsAsync(pRetry(async () => {}, {unref: 'yes'}), {
+		instanceOf: TypeError,
+		message: 'Expected `unref` to be a boolean.',
+	});
 });
 
 test('throws on invalid callback options', async t => {

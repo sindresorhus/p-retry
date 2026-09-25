@@ -36,13 +36,13 @@ function validateNumberOption(name, value, {min = 0, allowInfinity = false} = {}
 	}
 }
 
-function validateFunctionOption(name, value) {
+function validateOption(name, value, type, suffix = '') {
 	if (value === undefined) {
 		return;
 	}
 
-	if (typeof value !== 'function') {
-		throw new TypeError(`Expected \`${name}\` to be a function.`);
+	if (typeof value !== type) {
+		throw new TypeError(`Expected \`${name}\` to be a ${type}${suffix}.`);
 	}
 }
 
@@ -157,7 +157,9 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		retryDelay: retriesLeft > 0 ? delayTime : 0,
 	});
 
-	const consumeRetry = await options.shouldConsumeRetry(consumeRetryContext);
+	// No answer means no opinion, so fall back to the default. Treating it as `false` instead would
+	// leave `retries` uncounted and let the loop run forever.
+	const consumeRetry = (await options.shouldConsumeRetry(consumeRetryContext)) ?? true;
 	const effectiveDelay = consumeRetry && retriesLeft > 0 ? delayTime : 0;
 	const context = Object.freeze({
 		error: normalizedError,
@@ -227,9 +229,11 @@ export default async function pRetry(input, options = {}) {
 	options.shouldConsumeRetry ??= () => true;
 
 	// Validate numeric options and normalize edge cases
-	validateFunctionOption('onFailedAttempt', options.onFailedAttempt);
-	validateFunctionOption('shouldRetry', options.shouldRetry);
-	validateFunctionOption('shouldConsumeRetry', options.shouldConsumeRetry);
+	validateOption('onFailedAttempt', options.onFailedAttempt, 'function');
+	validateOption('shouldRetry', options.shouldRetry, 'function');
+	validateOption('shouldConsumeRetry', options.shouldConsumeRetry, 'function');
+	validateOption('randomize', options.randomize, 'boolean');
+	validateOption('unref', options.unref, 'boolean');
 	validateNumberOption('factor', options.factor, {min: 0, allowInfinity: false});
 	validateNumberOption('minTimeout', options.minTimeout, {min: 0, allowInfinity: false});
 	validateNumberOption('maxTimeout', options.maxTimeout, {min: 0, allowInfinity: true});

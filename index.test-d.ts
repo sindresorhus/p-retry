@@ -1,4 +1,4 @@
-import {expectType} from 'tsd';
+import {expectError, expectType} from 'tsd';
 import pRetry, {makeRetriable, AbortError, type RetryContext} from './index.js';
 
 expectType<Promise<number>>(pRetry(async count => {
@@ -38,7 +38,7 @@ expectType<string>(abortError.message);
 expectType<AbortError>(new AbortError('foo'));
 
 // Options that the runtime accepts.
-pRetry(() => 'foo', {
+expectType<Promise<string>>(pRetry(() => 'foo', {
 	retries: Number.POSITIVE_INFINITY,
 	factor: 1.5,
 	minTimeout: 0,
@@ -47,31 +47,25 @@ pRetry(() => 'foo', {
 	maxRetryTime: 5000,
 	unref: true,
 	signal: new AbortController().signal,
-});
+}));
 
-pRetry(() => 'foo', {
+expectType<Promise<string>>(pRetry(() => 'foo', {
 	shouldRetry: () => false,
-});
+}));
 
-pRetry(() => 'foo', {
+expectType<Promise<string>>(pRetry(() => 'foo', {
 	async shouldRetry(context) {
 		expectType<RetryContext>(context);
 		expectType<number>(context.retryDelay);
 		return true;
 	},
-});
+}));
 
-// @ts-expect-error - The callback has to be a function.
-pRetry(() => 'foo', {onFailedAttempt: 'nope'});
+expectError(pRetry(() => 'foo', {onFailedAttempt: 'nope'}));
+expectError(pRetry(() => 'foo', {forever: true}));
+expectError(pRetry());
 
-// @ts-expect-error - The option does not exist.
-pRetry(() => 'foo', {forever: true});
-
-// makeRetriable
+// `makeRetriable`
 const retried = makeRetriable(async (a: string, b: number) => `${a}${b}`, {retries: 1});
 expectType<Promise<string>>(retried('foo', 1));
-// @ts-expect-error - The second argument has to be a number.
-retried('foo', 'bar');
-
-// @ts-expect-error - `input` is required.
-pRetry();
+expectError(retried('foo', 'bar'));

@@ -138,7 +138,7 @@ Type: `Function`
 
 Decide if this failure should consume a retry from the `retries` budget.
 
-When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`.
+When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`. Returning nothing counts as `true`, so a callback that only logs keeps `retries` as the bound.
 
 The function is called _before_ `onFailedAttempt` and `shouldRetry`.
 
@@ -176,6 +176,8 @@ Default: `2`
 
 The exponential factor to use.
 
+A `factor` of `0` is treated as `1`, which keeps the delay constant instead of collapsing it to nothing.
+
 ##### minTimeout
 
 Type: `number`\
@@ -195,6 +197,8 @@ Default: `Infinity`
 
 The maximum number of milliseconds between two retries.
 
+Delays are also capped at the largest value a timer can hold, 2147483647ms, about 24.9 days. A longer one is clamped to that rather than firing straight away.
+
 ##### randomize
 
 Type: `boolean`\
@@ -207,7 +211,7 @@ Randomizes the timeouts by multiplying with a factor between 1 and 2.
 Type: `number`\
 Default: `Infinity`
 
-The maximum time (in milliseconds) that the retried operation is allowed to run.
+The maximum time (in milliseconds) that retrying is allowed to take.
 
 Measured with a monotonic clock (`performance.now()`) so system clock adjustments do not affect the limit.
 
@@ -308,6 +312,7 @@ Use an [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/Abor
 ```js
 import pRetry from 'p-retry';
 
+const run = async () => { … };
 const controller = new AbortController();
 
 process.once('SIGINT', () => {
