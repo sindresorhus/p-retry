@@ -186,6 +186,21 @@ test('AbortError - error', t => {
 	t.is(error.message, 'fixture');
 });
 
+test('AbortError - stack trace keeps the message', t => {
+	// The thrown error is `originalError`, so its stack must still name the failure and point at the caller.
+	const {stack} = new AbortError('fixture').originalError;
+	t.true(stack.startsWith('Error: fixture'));
+	t.true(stack.includes('new AbortError'));
+	t.true(stack.includes('test.js'));
+});
+
+test('AbortError - message is always a string', t => {
+	// `Error` stringifies a non-string message, so `AbortError` must too.
+	t.is(new AbortError(42).message, '42');
+	t.is(new AbortError().message, '');
+	t.is(new AbortError().message, new AbortError().originalError.message);
+});
+
 test('aborts', async t => {
 	let index = 0;
 
@@ -733,8 +748,20 @@ test('shouldConsumeRetry time counts toward maxRetryTime', async t => {
 	t.true(Date.now() - start < 1000);
 });
 
-test('maxTimeout lower than minTimeout caps delay', async t => {
-	const start = Date.now();
+test.serial('maxTimeout lower than minTimeout caps delay', async t => {
+	// Assert the scheduled delay instead of wall clock time, which is unreliable under load.
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
 	await t.throwsAsync(pRetry(async () => {
 		throw new Error('fail');
 	}, {
@@ -743,9 +770,9 @@ test('maxTimeout lower than minTimeout caps delay', async t => {
 		maxTimeout: 50,
 		factor: 1,
 	}));
-	const elapsed = Date.now() - start;
-	// Should be significantly less than minTimeout due to capping
-	t.true(elapsed < 200);
+
+	// Capped by `maxTimeout`, so the single delay is 50ms and not `minTimeout` (200ms).
+	t.deepEqual(captured, [50]);
 });
 
 test.serial('randomize affects retry delays', async t => {

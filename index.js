@@ -48,18 +48,22 @@ function validateFunctionOption(name, value) {
 
 export class AbortError extends Error {
 	constructor(message) {
-		super();
+		super(typeof message === 'string' ? message : undefined);
+
+		this.name = 'AbortError';
 
 		if (message instanceof Error) {
 			this.originalError = message;
 			({message} = message);
-		} else {
-			this.originalError = new Error(message);
-			this.originalError.stack = this.stack;
+			this.message = message;
+			return;
 		}
 
-		this.name = 'AbortError';
-		this.message = message;
+		// Created here, so it already captures every caller frame. Copying `this.stack` instead would
+		// only rewrite the header, which is rendered lazily from `name` and `message` at read time.
+		this.originalError = new Error(message);
+		// `new Error()` already stringifies a non-string message, so reuse its result.
+		this.message = this.originalError.message;
 	}
 }
 
