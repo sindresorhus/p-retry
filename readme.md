@@ -116,7 +116,7 @@ Decide if a retry should occur based on context. Returning `true` triggers a ret
 
 The function is called _after_ `onFailedAttempt` and `shouldConsumeRetry`.
 
-The function is _not_ called on `AbortError`, `TypeError` (except network errors), or if `retries` or `maxRetryTime` are exhausted.
+The function is _not_ called on `AbortError`, on an abort through `signal`, on `TypeError` (except network errors), or if `retries` or `maxRetryTime` are exhausted.
 
 If the function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
@@ -138,7 +138,9 @@ Type: `Function`
 
 Decide if this failure should consume a retry from the `retries` budget.
 
-When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`. Returning nothing counts as `true`, so a callback that only logs keeps `retries` as the bound.
+When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`. Returning nothing counts as `true`, the default, so `retries` stays the bound even if a callback forgets its `return`.
+
+The retry is attempted straight away rather than after a delay, since no delay was accumulated.
 
 The function is called _before_ `onFailedAttempt` and `shouldRetry`.
 

@@ -1,6 +1,8 @@
 import process from 'node:process';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {execa} from 'execa';
 import test from 'ava';
 import delay from 'delay';
@@ -8,6 +10,34 @@ import pRetry, {makeRetriable, AbortError} from './index.js';
 
 const fixture = Symbol('fixture');
 const fixtureError = new Error('fixture');
+
+// Scratch scripts for the subprocess tests. Written outside the repository, because a test that gets
+// killed mid-run never reaches its cleanup, and a leftover file in the working tree gets committed.
+const temporaryScript = async (name, body) => {
+	// The worker id keeps two concurrent `ava` runs from clobbering each other's script, and has to
+	// go before the extension or Node stops reading the file as a module.
+	const file = path.join(os.tmpdir(), `${path.parse(name).name}.${process.pid}${path.extname(name)}`);
+	await fs.writeFile(file, `import pRetry from ${JSON.stringify(pathToFileURL(path.join(process.cwd(), 'index.js')).href)};\n${body}`);
+	return file;
+};
+
+// Records the delays that were scheduled, so a test can assert on what was waited for instead of on
+// how long the machine took. The real delay is kept, so the operation still runs for real.
+const captureDelays = t => {
+	const delays = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms, ...arguments_) => {
+		delays.push(ms);
+		return originalSetTimeout(function_, ms, ...arguments_);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	return delays;
+};
 
 test('retries', async t => {
 	let index = 0;
@@ -83,6 +113,23 @@ test('a throwing toString does not replace the reported failure', async t => {
 	t.regex(error.message, /^Non-error was thrown/);
 });
 
+test('a value that cannot be converted at all still gets a useful error message', async t => {
+	// A proxy can throw from the `Symbol.toStringTag` read that the fallback does, too.
+	const error = await t.throwsAsync(pRetry(() => {
+		throw new Proxy({}, {
+			get(target, property) {
+				if (property === Symbol.toStringTag) {
+					throw new Error('toStringTag exploded');
+				}
+
+				return Reflect.get(target, property);
+			},
+		});
+	}, {retries: 0}), {instanceOf: TypeError});
+
+	t.is(error.message, 'Non-error was thrown: "object". You should only throw errors.');
+});
+
 test('no retry on TypeError', async t => {
 	const typeErrorFixture = new TypeError('type-error-fixture');
 	let index = 0;
@@ -150,7 +197,7 @@ test('async shouldRetry respects maxRetryTime after callback', async t => {
 	t.is(attempts, 1);
 });
 
-test('does not retry non-network TypeError when shouldConsumeRetry returns false', async t => {
+test('a non-network TypeError is not retried whatever shouldConsumeRetry says', async t => {
 	const typeErrorFixture = new TypeError('type-error-fixture');
 	let attempts = 0;
 
@@ -218,12 +265,9 @@ test('retry on TypeError - failed to fetch', async t => {
 test('errors are preserved when maxRetryTime exceeded', async t => {
 	const originalError = new Error('original error');
 	const maxRetryTime = 100;
-	let startTime;
 
 	const error = await t.throwsAsync(pRetry(
 		async () => {
-			startTime ||= Date.now();
-
 			await delay(maxRetryTime + 50); // Ensure we exceed maxRetryTime
 			throw originalError;
 		},
@@ -315,7 +359,7 @@ test('shouldConsumeRetry runs before onFailedAttempt when maxRetryTime is exhaus
 });
 
 test('retries: null uses the default', async t => {
-	// Every other option treats `null` as "not provided", so `retries` has to as well.
+	// Every option treats `null` as "not provided", so `retries` has to as well.
 	let attempts = 0;
 
 	await t.throwsAsync(pRetry(async () => {
@@ -327,6 +371,147 @@ test('retries: null uses the default', async t => {
 	}), {message: 'fail'});
 
 	t.is(attempts, 11); // The default of 10 retries, plus the first attempt.
+});
+
+test('null option values use the defaults', async t => {
+	// `unref` in particular has to be defaulted before it is validated, or `null` is not a boolean.
+	for (const options of [
+		{retries: null},
+		{factor: null},
+		{minTimeout: null},
+		{maxTimeout: null},
+		{maxRetryTime: null},
+		{randomize: null},
+		{unref: null},
+		{signal: null},
+		{onFailedAttempt: null},
+		{shouldRetry: null},
+		{shouldConsumeRetry: null},
+	]) {
+		await t.notThrowsAsync(pRetry(async () => fixture, options));
+	}
+});
+
+test('aborting inside shouldConsumeRetry skips the later callbacks', async t => {
+	const controller = new AbortController();
+	const calls = [];
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		signal: controller.signal,
+		minTimeout: 0,
+		shouldConsumeRetry() {
+			calls.push('shouldConsumeRetry');
+			controller.abort(fixtureError);
+			return true;
+		},
+		onFailedAttempt() {
+			calls.push('onFailedAttempt');
+		},
+		shouldRetry() {
+			calls.push('shouldRetry');
+			return true;
+		},
+	}), {is: fixtureError});
+
+	t.deepEqual(calls, ['shouldConsumeRetry']);
+});
+
+test('aborting inside onFailedAttempt skips shouldRetry', async t => {
+	const controller = new AbortController();
+	const calls = [];
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		signal: controller.signal,
+		minTimeout: 0,
+		onFailedAttempt() {
+			calls.push('onFailedAttempt');
+			controller.abort(fixtureError);
+		},
+		shouldRetry() {
+			calls.push('shouldRetry');
+			return true;
+		},
+	}), {is: fixtureError});
+
+	t.deepEqual(calls, ['onFailedAttempt']);
+});
+
+test('a nested AbortError is unwrapped all the way down', async t => {
+	// Left wrapped, the real cause would be buried and `error.name` would claim a cancellation.
+	await t.throwsAsync(pRetry(async () => {
+		throw new AbortError(new AbortError(fixtureError));
+	}, {retries: 5, minTimeout: 0}), {is: fixtureError});
+});
+
+test('throws on an invalid signal', async t => {
+	// Otherwise the failure surfaces as "options.signal?.throwIfAborted is not a function".
+	for (const signal of [true, 'abort', {}, {throwIfAborted() {}, addEventListener() {}}]) {
+		await t.throwsAsync(pRetry(async () => {}, {signal}), {
+			instanceOf: TypeError,
+			message: 'Expected `signal` to be an AbortSignal.',
+		});
+	}
+});
+
+test('an AbortError with an unusable originalError still rejects with an error', async t => {
+	// `originalError` is writable, so it can be left pointing at nothing.
+	const abortError = new AbortError('stop');
+	abortError.originalError = undefined;
+
+	const error = await t.throwsAsync(pRetry(async () => {
+		throw abortError;
+	}, {retries: 5, minTimeout: 0}), {instanceOf: Error});
+
+	t.is(error, abortError);
+});
+
+test('aborting while the operation is in flight stops it without waiting out the delay', async t => {
+	const controller = new AbortController();
+	const calls = [];
+
+	setTimeout(() => {
+		controller.abort(fixtureError);
+	}, 20);
+
+	await t.throwsAsync(pRetry(async () => {
+		// Settles only when the signal aborts, the way a request bound to the signal would.
+		const {promise, reject} = Promise.withResolvers();
+		controller.signal.addEventListener('abort', () => {
+			reject(controller.signal.reason);
+		}, {once: true});
+		await promise;
+	}, {
+		signal: controller.signal,
+		minTimeout: 60_000, // A minute of waiting if the abort is missed, so the test would hang.
+		onFailedAttempt() {
+			calls.push('onFailedAttempt');
+		},
+		shouldRetry() {
+			calls.push('shouldRetry');
+			return true;
+		},
+	}), {is: fixtureError});
+
+	t.deepEqual(calls, []);
+});
+
+test('a cycle in originalError does not hang', async t => {
+	const outer = new AbortError('outer');
+	const inner = new AbortError('inner');
+	outer.originalError = inner;
+	inner.originalError = outer;
+
+	// A synchronous spin here would block the event loop, so the test would time out. Unwrapping
+	// walks one link and then meets the cycle, so either wrapper is an acceptable result.
+	const error = await t.throwsAsync(pRetry(async () => {
+		throw outer;
+	}, {retries: 5, minTimeout: 0}), {instanceOf: Error});
+
+	t.true(error === outer || error === inner);
 });
 
 test('aborts', async t => {
@@ -490,9 +675,9 @@ test('shouldConsumeRetry then onFailedAttempt then shouldRetry order', async t =
 	t.deepEqual(order, ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry']);
 });
 
-test('handles async shouldRetry with maxRetryTime', async t => {
+test.serial('handles async shouldRetry with maxRetryTime', async t => {
 	let attempts = 0;
-	const start = Date.now();
+	const delays = captureDelays(t);
 	const maxRetryTime = 1000;
 
 	await t.throwsAsync(pRetry(
@@ -510,8 +695,13 @@ test('handles async shouldRetry with maxRetryTime', async t => {
 		},
 	));
 
-	t.true(Date.now() - start <= maxRetryTime + 200);
+	// Each attempt spends 100ms inside the callback, so the budget runs out well before the 10
+	// retries do. Were the callback time not counted, the backoff would schedule past `maxRetryTime`.
 	t.true(attempts < 10);
+	t.true(delays.length > 0);
+	for (const delay of delays) {
+		t.true(delay <= maxRetryTime, `${delay} is within the retry budget`);
+	}
 });
 
 test('onFailedAttempt provides correct error details', async t => {
@@ -559,9 +749,9 @@ test('onFailedAttempt is called even when shouldRetry returns false', async t =>
 	t.is(onFailedAttemptCount, 1);
 });
 
-test('onFailedAttempt can return a promise to add a delay', async t => {
-	const waitFor = 1000;
-	const start = Date.now();
+test.serial('onFailedAttempt can return a promise to add a delay', async t => {
+	const waitFor = 100;
+	const delays = captureDelays(t);
 	let isCalled;
 
 	await pRetry(
@@ -580,7 +770,8 @@ test('onFailedAttempt can return a promise to add a delay', async t => {
 		},
 	);
 
-	t.true(Date.now() > start + waitFor);
+	// The callback's own wait comes first, so the retry was only scheduled once it had resolved.
+	t.deepEqual(delays, [waitFor, 1000]);
 });
 
 test('onFailedAttempt can throw to abort retries', async t => {
@@ -598,14 +789,20 @@ test('onFailedAttempt can throw to abort retries', async t => {
 });
 
 test('retry context object is immutable', async t => {
+	const contexts = [];
+
+	// Matched on the TypeError, so an unrelated failure at the call site cannot pass this off as the
+	// freeze working.
 	await t.throwsAsync(pRetry(async () => {
 		throw new Error('fail');
 	}, {
 		onFailedAttempt(context) {
-			// Attempt to mutate frozen object in strict mode should throw
+			contexts.push(context);
 			Object.defineProperty(context, 'foo', {value: 'bar'});
 		},
-	}));
+	}), {instanceOf: TypeError, message: /not extensible/});
+
+	t.true(Object.isFrozen(contexts[0]));
 });
 
 test('onFailedAttempt can be undefined', async t => {
@@ -751,7 +948,9 @@ test.serial('maxRetryTime uses monotonic clock', async t => {
 		},
 	), {message: 'fail'});
 
-	t.true(attempts >= 2);
+	// The wall clock jumps a second backwards on the second attempt. A monotonic clock ignores that
+	// and gives up once the simulated 120ms is past the 100ms budget, so the run stops at two.
+	t.is(attempts, 2);
 });
 
 test.serial('minTimeout is respected even with small factor', async t => {
@@ -851,9 +1050,9 @@ test.serial('skipped attempts do not impact backoff', async t => {
 	t.is(attempts, 5);
 });
 
-test('shouldConsumeRetry time counts toward maxRetryTime', async t => {
+test.serial('shouldConsumeRetry time counts toward maxRetryTime', async t => {
 	let attempts = 0;
-	const start = Date.now();
+	const delays = captureDelays(t);
 	const maxRetryTime = 200;
 
 	const error = await t.throwsAsync(pRetry(
@@ -873,7 +1072,8 @@ test('shouldConsumeRetry time counts toward maxRetryTime', async t => {
 
 	t.is(error.message, 'fail');
 	t.is(attempts, 1);
-	t.true(Date.now() - start < 1000);
+	// The only wait is the callback's own 300ms, so p-retry scheduled no retry delay at all.
+	t.deepEqual(delays, [300]);
 });
 
 test.serial('delays are clamped to the setTimeout maximum', async t => {
@@ -993,8 +1193,8 @@ test.serial('randomize affects retry delays', async t => {
 	t.deepEqual(captured, [100, 200, 150]);
 });
 
-test('maxRetryTime limits total retry duration', async t => {
-	const start = Date.now();
+test.serial('maxRetryTime limits total retry duration', async t => {
+	const delays = captureDelays(t);
 	const maxRetryTime = 1000;
 
 	await t.throwsAsync(pRetry(
@@ -1009,12 +1209,15 @@ test('maxRetryTime limits total retry duration', async t => {
 		},
 	));
 
-	t.true(Date.now() - start < maxRetryTime + 1000);
+	// Every wait is trimmed to what is left of the budget, so none of them can run past it.
+	for (const delay of delays) {
+		t.true(delay > 0 && delay <= maxRetryTime, `${delay} is within the retry budget`);
+	}
 });
 
-test('onFailedAttempt time counts toward maxRetryTime', async t => {
+test.serial('onFailedAttempt time counts toward maxRetryTime', async t => {
 	let attempts = 0;
-	const start = Date.now();
+	const delays = captureDelays(t);
 	const maxRetryTime = 200;
 
 	const error = await t.throwsAsync(pRetry(
@@ -1033,12 +1236,13 @@ test('onFailedAttempt time counts toward maxRetryTime', async t => {
 
 	t.is(error.message, 'fail');
 	t.is(attempts, 1);
-	t.true(Date.now() - start < 1000);
+	// The only wait is the callback's own 300ms, so p-retry scheduled no retry delay at all.
+	t.deepEqual(delays, [300]);
 });
 
-test('signal already aborted when entering delay phase cancels immediately', async t => {
+test.serial('signal already aborted when entering delay phase cancels immediately', async t => {
 	const controller = new AbortController();
-	const start = Date.now();
+	const delays = captureDelays(t);
 
 	// Signal aborts before entering the delay phase (e.g., during input function execution)
 	await t.throwsAsync(pRetry(async () => {
@@ -1050,16 +1254,18 @@ test('signal already aborted when entering delay phase cancels immediately', asy
 		minTimeout: 5000, // Long delay to verify we don't wait
 	}), {is: fixtureError});
 
-	// Should abort immediately, not wait for the 5 second delay
-	t.true(Date.now() - start < 1000);
+	// The 5 second delay was never scheduled, so there was nothing to wait out.
+	t.deepEqual(delays, []);
 });
 
-test('signal abort during delay cancels promptly', async t => {
+test.serial('signal abort during delay cancels promptly', async t => {
 	const controller = new AbortController();
-	const start = Date.now();
 
-	// Abort shortly after the first failure schedules its delay
+	// Abort shortly after the first failure schedules its delay. Set up before the mock, so only
+	// p-retry's own waits are recorded.
 	setTimeout(() => controller.abort(fixtureError), 50);
+
+	const delays = captureDelays(t);
 
 	await t.throwsAsync(pRetry(async () => {
 		throw new Error('retry');
@@ -1070,7 +1276,8 @@ test('signal abort during delay cancels promptly', async t => {
 		factor: 2,
 	}), {is: fixtureError});
 
-	t.true(Date.now() - start < 1000);
+	// The 500ms delay was cleared when the abort landed, so the second retry never happened.
+	t.deepEqual(delays, [500]);
 });
 
 // AVA does not support DOMException.
@@ -1186,37 +1393,65 @@ test('onFailedAttempt still called when retries is zero', async t => {
 });
 
 test('invalid numeric options throw', async t => {
-	await t.throwsAsync(pRetry(async () => {}, {factor: -1}));
-	await t.throwsAsync(pRetry(async () => {}, {minTimeout: -1}));
-	await t.throwsAsync(pRetry(async () => {}, {maxTimeout: -1}));
-	await t.throwsAsync(pRetry(async () => {}, {maxRetryTime: -1}));
+	for (const name of ['factor', 'minTimeout', 'maxTimeout', 'maxRetryTime']) {
+		await t.throwsAsync(pRetry(async () => {}, {[name]: -1}), {
+			instanceOf: TypeError,
+			message: `Expected \`${name}\` to be ≥ 0.`,
+		});
+	}
+});
+
+test('non-number numeric options throw', async t => {
+	for (const name of ['factor', 'minTimeout', 'maxTimeout', 'maxRetryTime']) {
+		await t.throwsAsync(pRetry(async () => {}, {[name]: 'nope'}), {
+			instanceOf: TypeError,
+			message: new RegExp(`^Expected \`${name}\` to be a number`),
+		});
+	}
+});
+
+test('numeric options that only allow a finite value reject Infinity', async t => {
+	for (const name of ['factor', 'minTimeout']) {
+		await t.throwsAsync(pRetry(async () => {}, {[name]: Number.POSITIVE_INFINITY}), {
+			instanceOf: TypeError,
+			message: `Expected \`${name}\` to be a finite number.`,
+		});
+	}
+
+	// These two take Infinity as their default, so it has to be allowed.
+	for (const name of ['maxTimeout', 'maxRetryTime']) {
+		await t.notThrowsAsync(pRetry(async () => fixture, {[name]: Number.POSITIVE_INFINITY, retries: 0}));
+	}
 });
 
 test.serial('factor <= 0 is treated as 1 (stable delays)', async t => {
-	const start = Date.now();
+	const delays = captureDelays(t);
 	let calls = 0;
 
 	await t.throwsAsync(pRetry(async () => {
 		calls++;
 		throw new Error('retry');
 	}, {
-		retries: 1,
+		retries: 3,
 		minTimeout: 100,
 		factor: 0,
 		// Make delays deterministic
 		randomize: false,
 	}));
 
-	const elapsed = Date.now() - start;
-	// Expect ~1 delay of at least minTimeout
-	t.true(elapsed >= 90);
-	t.is(calls, 2);
+	// A factor of 0 would otherwise give 100 on the first retry and 0 on every one after it.
+	// The final attempt fails with nothing left to retry, so it never schedules a delay.
+	t.deepEqual(delays, [100, 100, 100]);
+	t.is(calls, 4);
 });
 
 test('unsupported `forever` option throws', async t => {
-	await t.throwsAsync(pRetry(async () => {}, {forever: true}), {
-		message: /no longer supported/,
-	});
+	// Deliberate: any own `forever` key is a migration mistake, even one carrying the old default.
+	for (const forever of [true, false, undefined, null]) {
+		await t.throwsAsync(pRetry(async () => {}, {forever}), {
+			message: /no longer supported/,
+		});
+	}
 });
 
 test('handles zero maxRetryTime', async t => {
@@ -1233,28 +1468,6 @@ test('handles zero maxRetryTime', async t => {
 	t.is(attempts, 1); // Should only try once with zero maxRetryTime
 });
 
-test('handles invalid factor values', async t => {
-	const delays = [];
-	const minTimeout = 100;
-
-	await t.throwsAsync(pRetry(
-		async () => {
-			const expectedDelay = minTimeout; // Should default to minTimeout
-			delays.push(expectedDelay);
-			throw new Error('test');
-		},
-		{
-			retries: 2,
-			factor: 0, // Invalid factor
-			minTimeout,
-			randomize: false,
-		},
-	));
-
-	t.is(delays[0], minTimeout);
-	t.is(delays[1], minTimeout);
-});
-
 test('handles synchronous input function', async t => {
 	let attempts = 0;
 
@@ -1269,7 +1482,7 @@ test('handles synchronous input function', async t => {
 	t.is(attempts, 3); // Initial + 2 retries
 });
 
-test('aborts retries if input function returns null', async t => {
+test('stops after the first attempt when the input returns null', async t => {
 	let attempts = 0;
 
 	const result = await pRetry(
@@ -1294,7 +1507,6 @@ test('handles non-Error rejection values', async t => {
 });
 
 test.serial('unref option prevents timeout from keeping process alive', async t => {
-	const delays = [];
 	let timeoutUnrefCalled = false;
 
 	// Mock setTimeout to track unref calls
@@ -1313,17 +1525,13 @@ test.serial('unref option prevents timeout from keeping process alive', async t 
 		globalThis.setTimeout = originalSetTimeout;
 	});
 
-	await t.throwsAsync(pRetry(
-		async () => {
-			delays.push(Date.now());
-			throw new Error('test');
-		},
-		{
-			retries: 2,
-			minTimeout: 50,
-			unref: true,
-		},
-	));
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('test');
+	}, {
+		retries: 2,
+		minTimeout: 50,
+		unref: true,
+	}));
 
 	t.true(timeoutUnrefCalled, 'timeout.unref() should be called when unref option is true');
 });
@@ -1345,9 +1553,7 @@ test.serial('unref option handles missing unref gracefully', async t => {
 });
 
 test('preserves user stack trace through async retries', async t => {
-	const script = `
-import pRetry from './index.js';
-
+	const temporaryFile = await temporaryScript('p-retry-stack-test.mjs', `
 async function foo1() {
 	return await foo2();
 }
@@ -1374,13 +1580,10 @@ async function main() {
 }
 
 main();
-`.trim();
-
-	const temporaryFile = path.join(process.cwd(), 'p-retry-stack-test.js');
-	await fs.writeFile(temporaryFile, script);
+`);
 
 	try {
-		const {stderr, stdout} = await execa('node', [temporaryFile], {reject: false});
+		const {stderr, stdout} = await execa('node', [temporaryFile], {timeout: 20_000, reject: false});
 		const output = stderr + stdout;
 		const stack = output.split('STACKTRACE_START')[1]?.split('STACKTRACE_END')[0]?.trim();
 
@@ -1866,6 +2069,62 @@ test('makeRetriable works without options', async t => {
 	t.is(await retried(), fixture);
 });
 
+test.serial('the delay is truncated to the time left', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	// The first delay wants a full second, but only 100ms of the budget is left.
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 3,
+		minTimeout: 1000,
+		maxRetryTime: 100,
+	}));
+
+	t.true(captured.length > 0);
+	for (const delay of captured) {
+		t.true(delay > 0 && delay <= 100, `${delay} is within the remaining time`);
+	}
+});
+
+test.serial('randomized delays stay within minTimeout and maxTimeout', async t => {
+	const originalRandom = Math.random;
+	const retryDelays = [];
+
+	// The multiplier is 1 + `Math.random()`, so this is just under 2.
+	Math.random = () => 0.999;
+
+	t.teardown(() => {
+		Math.random = originalRandom;
+	});
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 5,
+		minTimeout: 100,
+		factor: 2,
+		maxTimeout: 300,
+		randomize: true,
+		onFailedAttempt({retryDelay}) {
+			retryDelays.push(retryDelay);
+		},
+	}));
+
+	// 100 * ~2 is 200, then the doubling is capped at `maxTimeout`, and the last one has nothing left.
+	t.deepEqual(retryDelays, [200, 300, 300, 300, 300, 0]);
+});
+
 test.serial('factor: 1 keeps the delay constant', async t => {
 	const captured = [];
 	const originalSetTimeout = setTimeout;
@@ -1913,6 +2172,50 @@ test.serial('maxTimeout: 0 retries without waiting', async t => {
 	}));
 
 	t.deepEqual(captured, []);
+});
+
+test.serial('unref lets the process exit while a retry is pending', async t => {
+	// A real process, because the point is whether a pending timer keeps it alive.
+	const temporaryFile = await temporaryScript('p-retry-unref-test.mjs', `
+try {
+	await pRetry(async () => {
+		throw new Error('fail');
+	}, {retries: 5, minTimeout: 60_000, unref: true});
+} catch {}
+`);
+
+	try {
+		// The pending delay is a minute, so this can only finish if \`unref\` did its job. The timeout
+		// sits below AVA's own, so a regression fails on the assertion rather than as a hang.
+		const {timedOut} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		t.false(timedOut, 'the process should exit while a retry is pending');
+	} finally {
+		await fs.unlink(temporaryFile);
+	}
+});
+
+test.serial('aborting during a delay does not leave the timer running', async t => {
+	// A real process, because a timer that was never cleared is only visible as the process refusing
+	// to exit. Nothing else in the suite can tell a cleared delay from one that still has 60s to run.
+	const temporaryFile = await temporaryScript('p-retry-abort-timer-test.mjs', `
+const controller = new AbortController();
+setTimeout(() => {
+	controller.abort(new Error('cancelled'));
+}, 50);
+
+try {
+	await pRetry(async () => {
+		throw new Error('fail');
+	}, {signal: controller.signal, retries: 5, minTimeout: 60_000});
+} catch {}
+`);
+
+	try {
+		const {timedOut} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		t.false(timedOut, 'the abort should clear the pending delay');
+	} finally {
+		await fs.unlink(temporaryFile);
+	}
 });
 
 test.serial('unref is not applied unless the option is set', async t => {

@@ -36,13 +36,31 @@ function validateNumberOption(name, value, {min = 0, allowInfinity = false} = {}
 	}
 }
 
-function validateOption(name, value, type, suffix = '') {
-	if (value === undefined) {
+function validateOption(name, value, type) {
+	// `null` means "not provided", as it does for the other options. `unref` needs this because it is
+	// the one option with no default of its own.
+	if (value === undefined || value === null) {
 		return;
 	}
 
 	if (typeof value !== type) {
-		throw new TypeError(`Expected \`${name}\` to be a ${type}${suffix}.`);
+		throw new TypeError(`Expected \`${name}\` to be a ${type}.`);
+	}
+}
+
+function validateSignal(value) {
+	// `null` means "not provided", as it does for the other options.
+	if (value === undefined || value === null) {
+		return;
+	}
+
+	// Duck typed rather than `instanceof`, so a signal from another realm still works. All three
+	// methods are checked because `removeEventListener` is called from inside a timer callback, where
+	// a `TypeError` would be an uncaught exception rather than a rejection the caller could catch.
+	if (typeof value.throwIfAborted !== 'function'
+		|| typeof value.addEventListener !== 'function'
+		|| typeof value.removeEventListener !== 'function') {
+		throw new TypeError('Expected `signal` to be an AbortSignal.');
 	}
 }
 
@@ -123,22 +141,55 @@ async function delayForRetry(delay, options) {
 function stringifyThrownValue(value) {
 	try {
 		return String(value);
-	} catch {
+	} catch {}
+
+	try {
 		return Object.prototype.toString.call(value);
+	} catch {}
+
+	// A proxy can throw on `Symbol.toStringTag` too, so the type is the last thing always safe.
+	return typeof value;
+}
+
+// `AbortError` wraps the error the caller actually wants, and the wrappers can be nested, so keep
+// unwrapping until the cause is reached. Otherwise an `AbortError` would escape `pRetry` and a
+// `catch` doing `error instanceof AbortError` would read a real failure as a cancellation.
+function unwrapAbortError(error) {
+	let cause = error;
+	// `originalError` is writable, so it can point back into the chain. Track what has been seen so
+	// that a cycle stops here rather than spinning on a synchronous loop.
+	const seen = new Set([cause]);
+
+	while (cause instanceof AbortError) {
+		const {originalError} = cause;
+
+		if (!(originalError instanceof Error) || seen.has(originalError)) {
+			break;
+		}
+
+		seen.add(originalError);
+		cause = originalError;
 	}
+
+	return cause;
 }
 
 async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTime, options}) {
+	// Every boundary between callbacks is a place the caller can cancel from, so check at each one.
+	const abortIfNeeded = () => {
+		options.signal?.throwIfAborted();
+	};
+
 	const normalizedError = error instanceof Error
 		? error
 		: new TypeError(`Non-error was thrown: "${stringifyThrownValue(error)}". You should only throw errors.`);
 
 	if (normalizedError instanceof AbortError) {
-		throw normalizedError.originalError;
+		throw unwrapAbortError(normalizedError);
 	}
 
 	// An aborted operation never got a chance to fail, so no callback should run for it.
-	options.signal?.throwIfAborted();
+	abortIfNeeded();
 
 	const retriesLeft = Number.isFinite(options.retries)
 		? Math.max(0, options.retries - retriesConsumed)
@@ -160,6 +211,9 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	// No answer means no opinion, so fall back to the default. Treating it as `false` instead would
 	// leave `retries` uncounted and let the loop run forever.
 	const consumeRetry = (await options.shouldConsumeRetry(consumeRetryContext)) ?? true;
+
+	abortIfNeeded();
+
 	const effectiveDelay = consumeRetry && retriesLeft > 0 ? delayTime : 0;
 	const context = Object.freeze({
 		error: normalizedError,
@@ -170,6 +224,8 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	});
 
 	await options.onFailedAttempt(context);
+
+	abortIfNeeded();
 
 	const remainingTime = calculateRemainingTime(startTime, maxRetryTime);
 
@@ -192,17 +248,17 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	}
 
 	if (!consumeRetry) {
-		options.signal?.throwIfAborted();
+		abortIfNeeded();
 		return false;
 	}
 
 	const finalDelay = Math.min(effectiveDelay, remainingTimeAfterShouldRetry);
 
-	options.signal?.throwIfAborted();
+	abortIfNeeded();
 
 	await delayForRetry(finalDelay, options);
 
-	options.signal?.throwIfAborted();
+	abortIfNeeded();
 
 	return true;
 }
@@ -228,12 +284,13 @@ export default async function pRetry(input, options = {}) {
 	options.shouldRetry ??= () => true;
 	options.shouldConsumeRetry ??= () => true;
 
-	// Validate numeric options and normalize edge cases
+	// Validate the options that have a runtime type to check.
 	validateOption('onFailedAttempt', options.onFailedAttempt, 'function');
 	validateOption('shouldRetry', options.shouldRetry, 'function');
 	validateOption('shouldConsumeRetry', options.shouldConsumeRetry, 'function');
 	validateOption('randomize', options.randomize, 'boolean');
 	validateOption('unref', options.unref, 'boolean');
+	validateSignal(options.signal);
 	validateNumberOption('factor', options.factor, {min: 0, allowInfinity: false});
 	validateNumberOption('minTimeout', options.minTimeout, {min: 0, allowInfinity: false});
 	validateNumberOption('maxTimeout', options.maxTimeout, {min: 0, allowInfinity: true});

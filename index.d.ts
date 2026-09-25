@@ -110,7 +110,9 @@ export type Options = {
 	/**
 	Decide if this failure should consume a retry from the `retries` budget.
 
-	When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`. Returning nothing counts as `true`, so a callback that only logs keeps `retries` as the bound.
+	When `false` is returned, the failure will not consume a retry or increment backoff values, but is still subject to `maxRetryTime`. Returning nothing counts as `true`, the default, so `retries` stays the bound even if a callback forgets its `return`.
+
+	The retry is attempted straight away rather than after a delay, since no delay was accumulated.
 
 	The function is called before `onFailedAttempt` and `shouldRetry`.
 
@@ -171,7 +173,7 @@ export type Options = {
 	/**
 	The maximum number of milliseconds between two retries.
 
-Delays are also capped at the largest value a timer can hold, 2147483647ms, about 24.9 days. A longer one is clamped to that rather than firing straight away.
+	Delays are also capped at the largest value a timer can hold, 2147483647ms, about 24.9 days. A longer one is clamped to that rather than firing straight away.
 
 	@default Infinity
 	*/
