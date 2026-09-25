@@ -133,6 +133,9 @@ export type Options = {
 
 	In the example above, `RateLimitError`s will not decrement the available `retries`.
 
+	> [!WARNING]
+	> Failures that do not consume a retry also do not count towards `retries`, so returning `false` on every failure means `pRetry` never runs out of attempts. `maxRetryTime` is then the only bound, and it defaults to `Infinity`. Pair this option with `maxRetryTime`, or return `false` only for failures you expect to stop eventually.
+
 	If the `shouldConsumeRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
 	readonly shouldConsumeRetry?: (context: RetryContext) => boolean | Promise<boolean>;
@@ -155,6 +158,9 @@ export type Options = {
 	The number of milliseconds before starting the first retry.
 
 	Set this to `0` to retry immediately with no delay.
+
+	> [!WARNING]
+	> A delay of `0` schedules no timer at all, so attempts run back to back without ever yielding to the event loop. Combined with `retries: Infinity` or with failures that do not consume a retry, that is a busy loop that keeps the CPU pinned and stops timers, I/O, and `signal` from ever running. Use a small non-zero value if the operation can fail indefinitely.
 
 	@default 1000
 	*/
@@ -180,6 +186,8 @@ export type Options = {
 	@default Infinity
 
 	Measured with a monotonic clock (`performance.now()`) so system clock adjustments do not affect the limit.
+
+	The limit is checked after failed attempts and callbacks, before scheduling a retry. The retry delay is shortened to the remaining time, but the scheduled retry can still start after the limit. Attempts and callbacks are never interrupted, so they can run past the limit.
 	*/
 	readonly maxRetryTime?: number;
 

@@ -53,6 +53,36 @@ test('throws useful error message when non-error is thrown', async t => {
 	});
 });
 
+test('values that cannot be stringified still get a useful error message', async t => {
+	// Interpolating these into the message throws, which would hide the real failure.
+	const values = new Map([
+		[Symbol('fixture'), 'Symbol(fixture)'],
+		[Object.create(null), '[object Object]'],
+		[{toString: null}, '[object Object]'],
+	]);
+
+	for (const [value, expected] of values) {
+		await t.throwsAsync(pRetry(() => {
+			throw value;
+		}, {retries: 0}), {
+			instanceOf: TypeError,
+			message: `Non-error was thrown: "${expected}". You should only throw errors.`,
+		});
+	}
+});
+
+test('a throwing toString does not replace the reported failure', async t => {
+	const error = await t.throwsAsync(pRetry(() => {
+		throw { // eslint-disable-line no-throw-literal
+			toString() {
+				throw new Error('toString exploded');
+			},
+		};
+	}, {retries: 0}), {instanceOf: TypeError});
+
+	t.regex(error.message, /^Non-error was thrown/);
+});
+
 test('no retry on TypeError', async t => {
 	const typeErrorFixture = new TypeError('type-error-fixture');
 	let index = 0;
@@ -250,6 +280,21 @@ test('shouldConsumeRetry runs before onFailedAttempt when maxRetryTime is exhaus
 	// No retry can follow, but the failure is still reported in the documented order.
 	t.deepEqual(order, ['shouldConsumeRetry', 'onFailedAttempt']);
 	t.deepEqual(retryDelays, [0]);
+});
+
+test('retries: null uses the default', async t => {
+	// Every other option treats `null` as "not provided", so `retries` has to as well.
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		throw new Error('fail');
+	}, {
+		retries: null,
+		minTimeout: 0,
+	}), {message: 'fail'});
+
+	t.is(attempts, 11); // The default of 10 retries, plus the first attempt.
 });
 
 test('aborts', async t => {
@@ -1591,4 +1636,274 @@ test.serial('Only consumed retries advance backoff', async t => {
 	t.deepEqual(contexts.map(context => context.retriesConsumed), [0, 0, 1]);
 	t.deepEqual(contexts.map(context => context.retriesLeft), [2, 2, 1]);
 	t.deepEqual(timeouts, [minTimeout, minTimeout * factor]);
+});
+
+// Callback contract
+test('callbacks are skipped or not based on the error type', async t => {
+	const matrix = new Map([
+		['plain Error', {error: new Error('boom'), expected: ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry', 'shouldConsumeRetry', 'onFailedAttempt']}],
+		['non-network TypeError', {error: new TypeError('nope'), expected: ['shouldConsumeRetry', 'onFailedAttempt']}],
+		['network TypeError', {error: new TypeError('fetch failed'), expected: ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry', 'shouldConsumeRetry', 'onFailedAttempt']}],
+		['AbortError', {error: new AbortError('stop'), expected: []}],
+	]);
+
+	for (const [label, {error, expected}] of matrix) {
+		const calls = [];
+
+		await t.throwsAsync(pRetry(() => {
+			throw error;
+		}, {
+			retries: 1,
+			minTimeout: 0,
+			shouldConsumeRetry() {
+				calls.push('shouldConsumeRetry');
+				return true;
+			},
+			onFailedAttempt() {
+				calls.push('onFailedAttempt');
+			},
+			shouldRetry() {
+				calls.push('shouldRetry');
+				return true;
+			},
+		}));
+
+		t.deepEqual(calls, expected, `${label}`);
+	}
+});
+
+test('the operation error is preserved on every rejection path', async t => {
+	const target = new Error('target');
+	const scenarios = [
+		[{retries: 1, minTimeout: 0}, () => {
+			throw target;
+		}],
+		[{minTimeout: 0, shouldRetry: () => false}, () => {
+			throw target;
+		}],
+		[{
+			minTimeout: 0,
+			shouldConsumeRetry: () => false,
+			shouldRetry: () => false,
+		}, () => {
+			throw target;
+		}],
+		[{maxRetryTime: 0}, () => {
+			throw target;
+		}],
+		[{minTimeout: 0}, () => {
+			throw new AbortError(target);
+		}],
+		[{
+			minTimeout: 0,
+			onFailedAttempt() {
+				throw target;
+			},
+		}, () => {
+			throw new Error('something else');
+		}],
+	];
+
+	for (const [options, input] of scenarios) {
+		await t.throwsAsync(pRetry(input, options), {is: target});
+	}
+});
+
+test('a non-Error abort reason is preserved verbatim', async t => {
+	for (const reason of ['a string', 42, {custom: true}]) {
+		const controller = new AbortController();
+		let thrown;
+
+		try {
+			await pRetry(async () => {
+				controller.abort(reason);
+				return fixture;
+			}, {signal: controller.signal});
+		} catch (error) {
+			thrown = error;
+		}
+
+		t.is(thrown, reason);
+	}
+});
+
+test('a shared signal aborts every concurrent retry', async t => {
+	const controller = new AbortController();
+
+	const first = pRetry(async () => {
+		controller.abort(fixtureError);
+		throw new Error('first');
+	}, {signal: controller.signal, minTimeout: 10_000});
+	const second = pRetry(async () => {
+		throw new Error('second');
+	}, {signal: controller.signal, minTimeout: 10_000});
+
+	for (const result of await Promise.allSettled([first, second])) {
+		t.is(result.status, 'rejected');
+		t.is(result.reason, fixtureError);
+	}
+});
+
+test('each callback receives its own frozen context object', async t => {
+	const contexts = [];
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 1,
+		minTimeout: 0,
+		shouldConsumeRetry(context) {
+			contexts.push(context);
+			return true;
+		},
+		onFailedAttempt(context) {
+			contexts.push(context);
+		},
+		shouldRetry(context) {
+			contexts.push(context);
+			return false;
+		},
+	}));
+
+	t.is(contexts.length, 3);
+	// `onFailedAttempt` and `shouldRetry` share one object; only `shouldConsumeRetry` gets its own.
+	t.is(new Set(contexts).size, 2);
+	t.is(contexts[1], contexts[2]);
+	for (const context of contexts) {
+		t.true(Object.isFrozen(context));
+	}
+});
+
+test('retriesLeft and retriesConsumed always add up to retries', async t => {
+	const retries = 4;
+	const observations = [];
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries,
+		minTimeout: 0,
+		shouldConsumeRetry({retriesLeft, retriesConsumed}) {
+			observations.push([retriesLeft, retriesConsumed]);
+			return true;
+		},
+		onFailedAttempt({retriesLeft, retriesConsumed}) {
+			observations.push([retriesLeft, retriesConsumed]);
+		},
+	}));
+
+	t.is(observations.length, 10);
+	for (const [retriesLeft, retriesConsumed] of observations) {
+		t.is(retriesLeft + retriesConsumed, retries);
+	}
+});
+
+test('retryDelay is always a non-negative integer', async t => {
+	const retryDelays = [];
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 5,
+		minTimeout: 7,
+		factor: 1.5,
+		maxTimeout: 13,
+		onFailedAttempt({retryDelay}) {
+			retryDelays.push(retryDelay);
+		},
+	}));
+
+	t.is(retryDelays.length, 6);
+	for (const retryDelay of retryDelays) {
+		t.true(Number.isInteger(retryDelay), `${retryDelay} is an integer`);
+		t.true(retryDelay >= 0, `${retryDelay} is not negative`);
+	}
+});
+
+test('maxRetryTime does not interrupt an attempt that is already running', async t => {
+	const result = await pRetry(async () => {
+		await delay(100);
+		return fixture;
+	}, {maxRetryTime: 10, retries: 0});
+
+	t.is(result, fixture);
+});
+
+test('makeRetriable works without options', async t => {
+	const retried = makeRetriable(() => fixture);
+	t.is(await retried(), fixture);
+});
+
+test.serial('factor: 1 keeps the delay constant', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('test');
+	}, {
+		retries: 3,
+		factor: 1,
+		minTimeout: 100,
+		randomize: false,
+	}));
+
+	t.deepEqual(captured, [100, 100, 100]);
+});
+
+test.serial('maxTimeout: 0 retries without waiting', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('test');
+	}, {
+		retries: 2,
+		minTimeout: 100,
+		maxTimeout: 0,
+	}));
+
+	t.deepEqual(captured, []);
+});
+
+test.serial('unref is not applied unless the option is set', async t => {
+	let unrefCalled = false;
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms) => {
+		const timeout = originalSetTimeout(function_, ms);
+		timeout.unref = () => {
+			unrefCalled = true;
+			return timeout;
+		};
+
+		return timeout;
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('test');
+	}, {retries: 1, minTimeout: 10}));
+
+	t.false(unrefCalled);
 });

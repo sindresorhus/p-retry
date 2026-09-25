@@ -159,6 +159,9 @@ const result = await pRetry(run, {
 
 In the example above, `RateLimitError`s will not decrement the available `retries`.
 
+> [!WARNING]
+> Failures that do not consume a retry also do not count towards `retries`, so returning `false` on every failure means `pRetry` never runs out of attempts. `maxRetryTime` is then the only bound, and it defaults to `Infinity`. Pair this option with `maxRetryTime`, or return `false` only for failures you expect to stop eventually.
+
 ##### retries
 
 Type: `number`\
@@ -182,6 +185,9 @@ The number of milliseconds before starting the first retry.
 
 Set this to `0` to retry immediately with no delay.
 
+> [!WARNING]
+> A delay of `0` schedules no timer at all, so attempts run back to back without ever yielding to the event loop. Combined with `retries: Infinity` or with failures that do not consume a retry, that is a busy loop that keeps the CPU pinned and stops timers, I/O, and `signal` from ever running. Use a small non-zero value if the operation can fail indefinitely.
+
 ##### maxTimeout
 
 Type: `number`\
@@ -204,6 +210,8 @@ Default: `Infinity`
 The maximum time (in milliseconds) that the retried operation is allowed to run.
 
 Measured with a monotonic clock (`performance.now()`) so system clock adjustments do not affect the limit.
+
+The limit is checked after failed attempts and callbacks, before scheduling a retry. The retry delay is shortened to the remaining time, but the scheduled retry can still start after the limit. Attempts and callbacks are never interrupted, so they can run past the limit.
 
 ##### signal
 
@@ -290,6 +298,8 @@ await pRetry(() => run('🦄'), {retries: 5});
 ### How do I mock timers when testing with this package?
 
 The package uses `setTimeout` and `clearTimeout` from the global scope, so you can use the [Node.js test timer mocking](https://nodejs.org/api/test.html#class-mocktimers) or a package like [`sinon`](https://github.com/sinonjs/sinon).
+
+`maxRetryTime` is measured separately, with `performance.now()`. A fake timer that only replaces `setTimeout` leaves that clock running, so `maxRetryTime` is not reached while the mocked clock is. Fake `performance.now()` too if you are testing that option.
 
 ### How do I stop retries when the process receives SIGINT (Ctrl+C)?
 

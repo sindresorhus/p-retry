@@ -55,15 +55,15 @@ export class AbortError extends Error {
 		if (message instanceof Error) {
 			this.originalError = message;
 			({message} = message);
-			this.message = message;
-			return;
+		} else {
+			// Created here, so it already captures every caller frame. Copying `this.stack` instead would
+			// only rewrite the header, which is rendered lazily from `name` and `message` at read time.
+			// It also stringifies a non-string message, so reuse its result below.
+			this.originalError = new Error(message);
+			({message} = this.originalError);
 		}
 
-		// Created here, so it already captures every caller frame. Copying `this.stack` instead would
-		// only rewrite the header, which is rendered lazily from `name` and `message` at read time.
-		this.originalError = new Error(message);
-		// `new Error()` already stringifies a non-string message, so reuse its result.
-		this.message = this.originalError.message;
+		this.message = message;
 	}
 }
 
@@ -118,10 +118,20 @@ async function delayForRetry(delay, options) {
 	});
 }
 
+// Stringifying a thrown value can itself throw, for a symbol or an object with a broken `toString`.
+// That must never be allowed to replace the failure the caller is actually dealing with.
+function stringifyThrownValue(value) {
+	try {
+		return String(value);
+	} catch {
+		return Object.prototype.toString.call(value);
+	}
+}
+
 async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTime, options}) {
 	const normalizedError = error instanceof Error
 		? error
-		: new TypeError(`Non-error was thrown: "${error}". You should only throw errors.`);
+		: new TypeError(`Non-error was thrown: "${stringifyThrownValue(error)}". You should only throw errors.`);
 
 	if (normalizedError instanceof AbortError) {
 		throw normalizedError.originalError;
@@ -198,13 +208,15 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 export default async function pRetry(input, options = {}) {
 	options = {...options};
 
+	// Applied before validating, so that `null` means "not provided" here as it does for every other option.
+	options.retries ??= 10;
+
 	validateRetries(options.retries);
 
 	if (Object.hasOwn(options, 'forever')) {
 		throw new Error('The `forever` option is no longer supported. For many use-cases, you can set `retries: Infinity` instead.');
 	}
 
-	options.retries ??= 10;
 	options.factor ??= 2;
 	options.minTimeout ??= 1000;
 	options.maxTimeout ??= Number.POSITIVE_INFINITY;
