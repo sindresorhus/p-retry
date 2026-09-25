@@ -201,6 +201,57 @@ test('AbortError - message is always a string', t => {
 	t.is(new AbortError().message, new AbortError().originalError.message);
 });
 
+test('AbortSignal short-circuits callbacks', async t => {
+	const controller = new AbortController();
+	let attempts = 0;
+
+	await t.throwsAsync(pRetry(async () => {
+		attempts++;
+		controller.abort(fixtureError);
+		return fixture;
+	}, {
+		signal: controller.signal,
+		onFailedAttempt() {
+			t.fail('onFailedAttempt should not fire');
+		},
+		shouldRetry() {
+			t.fail('shouldRetry should not fire');
+		},
+		shouldConsumeRetry() {
+			t.fail('shouldConsumeRetry should not fire');
+		},
+	}), {is: fixtureError});
+
+	t.is(attempts, 1);
+});
+
+test('shouldConsumeRetry runs before onFailedAttempt when maxRetryTime is exhausted', async t => {
+	const order = [];
+	const retryDelays = [];
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		maxRetryTime: 0,
+		shouldConsumeRetry() {
+			order.push('shouldConsumeRetry');
+			return true;
+		},
+		onFailedAttempt({retryDelay}) {
+			order.push('onFailedAttempt');
+			retryDelays.push(retryDelay);
+		},
+		shouldRetry() {
+			order.push('shouldRetry');
+			return true;
+		},
+	}), {message: 'fail'});
+
+	// No retry can follow, but the failure is still reported in the documented order.
+	t.deepEqual(order, ['shouldConsumeRetry', 'onFailedAttempt']);
+	t.deepEqual(retryDelays, [0]);
+});
+
 test('aborts', async t => {
 	let index = 0;
 

@@ -127,27 +127,17 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		throw normalizedError.originalError;
 	}
 
+	// An aborted operation never got a chance to fail, so no callback should run for it.
+	options.signal?.throwIfAborted();
+
 	const retriesLeft = Number.isFinite(options.retries)
 		? Math.max(0, options.retries - retriesConsumed)
 		: options.retries;
 
 	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
-	const delayTime = calculateDelay(retriesConsumed, options);
-	const remainingTimeBeforeCallbacks = calculateRemainingTime(startTime, maxRetryTime);
-
-	if (remainingTimeBeforeCallbacks <= 0) {
-		const context = Object.freeze({
-			error: normalizedError,
-			attemptNumber,
-			retriesLeft,
-			retriesConsumed,
-			retryDelay: 0,
-		});
-
-		await options.onFailedAttempt(context);
-
-		throw normalizedError;
-	}
+	// Out of time already, so the callbacks must be told that no retry follows.
+	const timeLeft = calculateRemainingTime(startTime, maxRetryTime);
+	const delayTime = timeLeft > 0 ? calculateDelay(retriesConsumed, options) : 0;
 
 	const consumeRetryContext = Object.freeze({
 		error: normalizedError,
@@ -168,10 +158,6 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	});
 
 	await options.onFailedAttempt(context);
-
-	if (calculateRemainingTime(startTime, maxRetryTime) <= 0) {
-		throw normalizedError;
-	}
 
 	const remainingTime = calculateRemainingTime(startTime, maxRetryTime);
 

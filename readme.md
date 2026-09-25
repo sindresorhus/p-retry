@@ -55,7 +55,7 @@ Type: `Function`
 
 Callback invoked on each failure. Receives a context object containing the error and retry state information.
 
-The function is called _after_ `shouldConsumeRetry` and _before_ `shouldRetry`, for all errors _except_ `AbortError`.
+The function is called _after_ `shouldConsumeRetry` and _before_ `shouldRetry`, for all errors _except_ `AbortError` and an abort through `signal`.
 
 If the function throws, all retries will be aborted and the original promise will reject with the thrown error.
 
@@ -142,7 +142,7 @@ When `false` is returned, the failure will not consume a retry or increment back
 
 The function is called _before_ `onFailedAttempt` and `shouldRetry`.
 
-The function is _not_ called on `AbortError`.
+The function is _not_ called on `AbortError` or when the operation is aborted through `signal`.
 
 If the function throws, all retries will be aborted and the original promise will reject with the thrown error.
 

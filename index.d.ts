@@ -31,9 +31,9 @@ export type Options = {
 	/**
 	Callback invoked on each failure. Receives a context object containing the error and retry state information.
 
-	The function is called after `shouldConsumeRetry` and before `shouldRetry`, for all errors except `AbortError`.
+	The function is called after `shouldConsumeRetry` and before `shouldRetry`, for all errors except `AbortError` and an abort through `signal`.
 
-	The function is not called on `AbortError`.
+	The function is not called on `AbortError` or when the operation is aborted through `signal`.
 
 	@example
 	```
@@ -88,7 +88,7 @@ export type Options = {
 
 	The function is called after `onFailedAttempt` and `shouldConsumeRetry`.
 
-	The function is not called on `AbortError`, `TypeError` (except network errors), or if `retries` or `maxRetryTime` are exhausted.
+	The function is not called on `AbortError`, on an abort through `signal`, on `TypeError` (except network errors), or if `retries` or `maxRetryTime` are exhausted.
 
 	@example
 	```
@@ -114,7 +114,7 @@ export type Options = {
 
 	The function is called before `onFailedAttempt` and `shouldRetry`.
 
-	The function is not called on `AbortError`.
+	The function is not called on `AbortError` or when the operation is aborted through `signal`.
 
 	@example
 	```
