@@ -748,6 +748,62 @@ test('shouldConsumeRetry time counts toward maxRetryTime', async t => {
 	t.true(Date.now() - start < 1000);
 });
 
+test.serial('delays are clamped to the setTimeout maximum', async t => {
+	const captured = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms) => {
+		captured.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	// A delay this large does not fit in a 32-bit integer, so `setTimeout` would fire it right away.
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 1,
+		minTimeout: 2 ** 31,
+		maxTimeout: Number.POSITIVE_INFINITY,
+	}));
+
+	t.deepEqual(captured, [(2 ** 31) - 1]);
+});
+
+test.serial('delays stay 0 when minTimeout is 0 and the factor overflows', async t => {
+	// The factor grows to `Infinity` after enough attempts, and `0 * Infinity` is `NaN`.
+	const retryDelays = [];
+	const scheduledDelays = [];
+	const originalSetTimeout = setTimeout;
+
+	globalThis.setTimeout = (function_, ms) => {
+		scheduledDelays.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('test');
+	}, {
+		retries: 1030,
+		minTimeout: 0,
+		factor: 2,
+		onFailedAttempt({retryDelay}) {
+			retryDelays.push(retryDelay);
+		},
+	}));
+
+	t.is(retryDelays.length, 1031);
+	t.false(retryDelays.some(delay => Number.isNaN(delay)));
+	t.false(scheduledDelays.some(delay => Number.isNaN(delay)));
+});
+
 test.serial('maxTimeout lower than minTimeout caps delay', async t => {
 	// Assert the scheduled delay instead of wall clock time, which is unreliable under load.
 	const captured = [];

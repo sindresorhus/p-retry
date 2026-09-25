@@ -67,14 +67,22 @@ export class AbortError extends Error {
 	}
 }
 
+// `setTimeout` cannot represent a longer delay and fires it right away instead, which turns a long
+// backoff into a tight retry loop. Cap at the largest value it can still hold.
+const maximumDelay = (2 ** 31) - 1;
+
 function calculateDelay(retriesConsumed, options) {
+	// Nothing to wait for, and multiplying by a factor that has grown to `Infinity` would give `NaN`.
+	if (options.minTimeout === 0) {
+		return 0;
+	}
+
 	const attempt = Math.max(1, retriesConsumed + 1);
 	const random = options.randomize ? (Math.random() + 1) : 1;
 
-	let timeout = Math.round(random * options.minTimeout * (options.factor ** (attempt - 1)));
-	timeout = Math.min(timeout, options.maxTimeout);
+	const timeout = Math.round(random * options.minTimeout * (options.factor ** (attempt - 1)));
 
-	return timeout;
+	return Math.min(timeout, options.maxTimeout, maximumDelay);
 }
 
 function calculateRemainingTime(start, max) {
