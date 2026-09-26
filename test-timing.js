@@ -8,9 +8,25 @@ import {
 import pRetry, {AbortError} from './index.js';
 
 test.serial('handles async shouldRetry with maxRetryTime', async t => {
+	const originalPerformanceNow = performance.now;
+	const originalSetTimeout = setTimeout;
+	const delays = [];
+	let now = 0;
+
+	// Both clocks are controlled. With real ones the callback's wait has to fit inside the budget for
+	// a delay to be scheduled at all, which is a real time dependency with nothing behind it.
+	performance.now = () => now;
+	globalThis.setTimeout = (function_, ms) => {
+		delays.push(ms);
+		return originalSetTimeout(function_, 0);
+	};
+
+	t.teardown(() => {
+		performance.now = originalPerformanceNow;
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
 	let attempts = 0;
-	const delays = captureDelays(t);
-	const maxRetryTime = 1000;
 
 	await t.throwsAsync(pRetry(
 		async () => {
@@ -19,21 +35,19 @@ test.serial('handles async shouldRetry with maxRetryTime', async t => {
 		},
 		{
 			retries: 10,
-			maxRetryTime,
+			maxRetryTime: 1000,
 			async shouldRetry() {
-				await delay(100);
+				now += 100; // The callback is what spends the budget.
 				return true;
 			},
 		},
 	));
 
-	// Each attempt spends 100ms inside the callback, so the budget runs out well before the 10
-	// retries do. Were the callback time not counted, the backoff would schedule past `maxRetryTime`.
-	t.true(attempts < 10);
-	t.true(delays.length > 0);
-	for (const delay of delays) {
-		t.true(delay <= maxRetryTime, `${delay} is within the retry budget`);
-	}
+	// Each attempt costs 100ms of a 1000ms budget inside the callback, so the tenth attempt finds
+	// nothing left. Were the callback time not counted, the backoff would schedule 1000, 2000, 4000
+	// and the run would use all 11 attempts.
+	t.is(attempts, 10);
+	t.deepEqual(delays, [900, 800, 700, 600, 500, 400, 300, 200, 100]);
 });
 
 test.serial('onFailedAttempt can return a promise to add a delay', async t => {
@@ -719,20 +733,29 @@ test.serial('Only consumed retries advance backoff', async t => {
 });
 
 test.serial('the delay is truncated to the time left', async t => {
-	const captured = [];
+	const originalPerformanceNow = performance.now;
 	const originalSetTimeout = setTimeout;
+	const captured = [];
+	let now = 0;
 
+	// Both clocks are controlled. With real ones, the first attempt has to complete inside the 100ms
+	// budget for any delay to be scheduled at all, which leaves roughly 10ms of headroom before a
+	// slow worker turns this into a zero-length run that asserts nothing.
+	performance.now = () => now;
 	globalThis.setTimeout = (function_, ms) => {
 		captured.push(ms);
 		return originalSetTimeout(function_, 0);
 	};
 
 	t.teardown(() => {
+		performance.now = originalPerformanceNow;
 		globalThis.setTimeout = originalSetTimeout;
 	});
 
-	// The first delay wants a full second, but only 100ms of the budget is left.
+	// Each delay wants more than the whole budget, so each is trimmed to what is left, which shrinks
+	// by the cost of the attempt in between.
 	await t.throwsAsync(pRetry(async () => {
+		now += 10;
 		throw new Error('fail');
 	}, {
 		retries: 3,
@@ -740,10 +763,7 @@ test.serial('the delay is truncated to the time left', async t => {
 		maxRetryTime: 100,
 	}));
 
-	t.true(captured.length > 0);
-	for (const delay of captured) {
-		t.true(delay > 0 && delay <= 100, `${delay} is within the remaining time`);
-	}
+	t.deepEqual(captured, [90, 80, 70]);
 });
 
 test.serial('randomized delays stay within minTimeout and maxTimeout', async t => {

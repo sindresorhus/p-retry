@@ -7,9 +7,10 @@ export class AbortError extends Error {
 
 	When `input` throws an `AbortError`, the promise rejects with the wrapped error. When you pass an error, a `catch` sees that error. When you pass a message, it sees a plain `Error` with that message. An `AbortError` thrown by a callback or passed as a `signal` abort reason is preserved as is.
 
+
 	@param message - An error message or a custom error.
 	*/
-	constructor(message: string | Error);
+	constructor(message?: string | Error);
 }
 
 export type RetryContext = {
@@ -24,7 +25,7 @@ export type RetryContext = {
 	This is calculated based on `minTimeout`, `factor`, `maxTimeout`, and `randomize` options.
 
 	Note: The actual delay may be shorter if it would exceed `maxRetryTime`.
-	This is `0` when the retry is skipped or when no retry will occur based on the checks completed before the current callback runs.
+	This is `0` when no retry will occur based on the checks completed before the current callback runs. `shouldConsumeRetry` is the exception: it is shown the delay that would be used, since deciding whether to consume the retry is what it is being asked.
 	*/
 	readonly retryDelay: number;
 };
@@ -201,6 +202,8 @@ export type Options = {
 
 	/**
 	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
+
+	Once the signal is aborted, the abort reason is what the promise rejects with, whatever the operation threw and whatever the callbacks returned. A cancellation is the caller's decision and is not overwritten by a later failure.
 
 	```
 	import pRetry from 'p-retry';

@@ -31,6 +31,9 @@ new AbortError(new Error('foo')); // eslint-disable-line no-new
 
 expectType<AbortError>(abortError);
 
+// No argument is legal at runtime, and the suite relies on it.
+expectType<AbortError>(new AbortError());
+
 // AbortError
 expectType<'AbortError'>(abortError.name);
 expectType<Error>(abortError.originalError);

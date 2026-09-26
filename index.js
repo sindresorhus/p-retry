@@ -263,17 +263,25 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		throw normalizedError;
 	}
 
-	if (normalizedError instanceof TypeError && !isNetworkError(normalizedError)) {
+	if (isInstanceOf(normalizedError, TypeError) && !isNetworkError(normalizedError)) {
 		throw normalizedError;
 	}
 
 	if (!await options.shouldRetry(context)) {
+		// The caller's cancellation is final, so it outranks the operation error here too. Without
+		// this, aborting inside `shouldRetry` would change which error the caller gets depending on
+		// what the callback returned, where the other two callbacks are consistent.
+		abortIfNeeded();
 		throw normalizedError;
 	}
 
 	const remainingTimeAfterShouldRetry = calculateRemainingTime(startTime, maxRetryTime);
 
 	if (remainingTimeAfterShouldRetry <= 0) {
+		// The caller's cancellation is final, so it outranks the operation error here too. Without
+		// this, a `shouldRetry` that returns true, aborts, and spends the rest of the budget would
+		// take this branch and report the operation failure instead.
+		abortIfNeeded();
 		throw normalizedError;
 	}
 

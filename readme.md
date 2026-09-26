@@ -90,7 +90,7 @@ The `context` object contains:
 - `attemptNumber` - The attempt number (starts at 1)
 - `retriesLeft` - Number of retries remaining
 - `retriesConsumed` - Number of retries consumed so far
-- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`). This is `0` when the retry is skipped or when no retry will occur based on the checks completed before the current callback runs.
+- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`). This is `0` when no retry will occur based on the checks completed before the current callback runs. `shouldConsumeRetry` is the exception: it is shown the delay that would be used, since deciding whether to consume the retry is what it is being asked.
 
 The `onFailedAttempt` function can return a promise. For example, to add a [delay](https://github.com/sindresorhus/delay):
 
@@ -224,6 +224,8 @@ The limit is checked after failed attempts and callbacks, before scheduling a re
 Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal)
 
 You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
+
+Once the signal is aborted, the abort reason is what the promise rejects with, whatever the operation threw and whatever the callbacks returned. A cancellation is the caller's decision and is not overwritten by a later failure.
 
 ```js
 import pRetry from 'p-retry';

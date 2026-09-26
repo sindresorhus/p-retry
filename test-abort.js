@@ -423,14 +423,48 @@ test('a non-Error abort reason is preserved verbatim', async t => {
 	}
 });
 
+test('a cancellation is final whatever a callback returns', async t => {
+	// Aborting inside a callback used to change the reported error depending on what that callback
+	// returned, and the operation error could be discarded even when no retry was going to follow.
+	for (const [abortIn, returnsTrue] of [
+		['shouldConsumeRetry', true],
+		['onFailedAttempt', undefined],
+		['shouldRetry', true],
+		['shouldRetry', false],
+	]) {
+		const controller = new AbortController();
+		const options = {
+			// One retry, so every callback under test is actually reached.
+			retries: 1,
+			signal: controller.signal,
+			minTimeout: 0,
+			[abortIn]() {
+				controller.abort(fixtureError);
+				return returnsTrue;
+			},
+		};
+
+		await t.throwsAsync(pRetry(async () => {
+			throw new Error('operation failed');
+		}, options), {is: fixtureError}, `${abortIn} returning ${returnsTrue}`);
+	}
+});
+
 test('a shared signal aborts every concurrent retry', async t => {
 	const controller = new AbortController();
+	let firstCalls = 0;
+	let secondCalls = 0;
 
+	// The first call is still mid-attempt when the second one aborts, so this covers the signal being
+	// watched while a retry is already running rather than only the already-aborted-at-entry case.
 	const first = pRetry(async () => {
-		controller.abort(fixtureError);
+		firstCalls++;
+		await delay(20);
 		throw new Error('first');
 	}, {signal: controller.signal, minTimeout: 10_000});
 	const second = pRetry(async () => {
+		secondCalls++;
+		controller.abort(fixtureError);
 		throw new Error('second');
 	}, {signal: controller.signal, minTimeout: 10_000});
 
@@ -438,6 +472,10 @@ test('a shared signal aborts every concurrent retry', async t => {
 		t.is(result.status, 'rejected');
 		t.is(result.reason, fixtureError);
 	}
+
+	// Both started, and neither got a second attempt.
+	t.is(firstCalls, 1);
+	t.is(secondCalls, 1);
 });
 
 test('AbortError is named and identifies itself as such', t => {
