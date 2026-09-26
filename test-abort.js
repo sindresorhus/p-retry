@@ -297,7 +297,7 @@ test('operation stops immediately on AbortError', async () => {
 			retries: 10,
 			minTimeout: 0,
 		},
-	));
+	), {message: 'stop'});
 
 	assert.equal(attempts, 2); // Should stop after AbortError
 });
@@ -417,6 +417,30 @@ test('a non-Error abort reason is preserved verbatim', async () => {
 
 		assert.equal(thrown, reason);
 	}
+});
+
+test('a cancellation during shouldRetry is caught before the delay is set up', {timeout: 15_000}, async () => {
+	// The check before `delayForRetry` is what keeps a cancellation prompt. Without it the delay
+	// registers a listener on an already-aborted signal, which never fires, so the caller waits out
+	// the whole backoff after asking to stop. A real timer is the point here: firing it immediately
+	// would let the check after the delay catch the abort instead and prove nothing.
+	const controller = new AbortController();
+	const cancelled = new Error('cancelled');
+
+	await assert.rejects(
+		pRetry(async () => {
+			throw new Error('operation failed');
+		}, {
+			signal: controller.signal,
+			retries: 5,
+			minTimeout: 60 * 60 * 1000,
+			async shouldRetry() {
+				controller.abort(cancelled);
+				return true;
+			},
+		}),
+		rejectsWith(cancelled),
+	);
 });
 
 test('a cancellation is final whatever a callback returns', async () => {

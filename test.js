@@ -1,10 +1,16 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import delay from 'delay';
-import {fixture, fixtureError, rejectsWith} from './helpers.js';
+import {
+	fixture,
+	fixtureError,
+	rejectsWith,
+	withFakeTime,
+} from './helpers.js';
 import pRetry, {makeRetriable, AbortError} from './index.js';
 
-test('retries', {timeout: 60_000}, async () => {
+test('retries', {timeout: 60_000}, async t => {
+	await withFakeTime(t);
 	let index = 0;
 
 	const returnValue = await pRetry(async attemptNumber => {
@@ -34,7 +40,7 @@ test('retries forever when specified', async () => {
 			retries: Infinity,
 			minTimeout: 0, // Speed up test
 		},
-	));
+	), {message: 'stop'});
 
 	assert.equal(attempts, maxAttempts);
 });
@@ -172,7 +178,7 @@ test('async shouldRetry respects maxRetryTime after callback', async t => {
 			now += 100; // The callback, which is what has to exhaust the budget.
 			return true;
 		},
-	}));
+	}), {message: 'fail'});
 
 	assert.equal(attempts, 1);
 });
@@ -228,7 +234,8 @@ test('throws on invalid callback options', async () => {
 	});
 });
 
-test('retry on TypeError - failed to fetch', {timeout: 60_000}, async () => {
+test('retry on TypeError - failed to fetch', {timeout: 60_000}, async t => {
+	await withFakeTime(t);
 	const typeErrorFixture = new TypeError('Failed to fetch');
 	let index = 0;
 
@@ -320,7 +327,8 @@ test('null option values use the defaults', async () => {
 	}
 });
 
-test('shouldRetry controls retry behavior', {timeout: 60_000}, async () => {
+test('shouldRetry controls retry behavior', {timeout: 60_000}, async t => {
+	await withFakeTime(t);
 	const retryError = new Error('should-retry');
 	const customError = new Error('custom-error');
 	let index = 0;
@@ -357,12 +365,13 @@ test('shouldConsumeRetry then onFailedAttempt then shouldRetry order', async () 
 			order.push('shouldRetry');
 			return false;
 		},
-	}));
+	}), {message: 'order'});
 
 	assert.deepEqual(order, ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry']);
 });
 
-test('onFailedAttempt provides correct error details', {timeout: 60_000}, async () => {
+test('onFailedAttempt provides correct error details', {timeout: 60_000}, async t => {
+	await withFakeTime(t);
 	const retries = 5;
 	let index = 0;
 	let failureCount = 0;
@@ -427,13 +436,19 @@ test('retry context object is immutable', async () => {
 	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
 	}, {
+		shouldConsumeRetry(context) {
+			contexts.push(context);
+		},
 		onFailedAttempt(context) {
 			contexts.push(context);
 			Object.defineProperty(context, 'foo', {value: 'bar'});
 		},
 	}), {name: 'TypeError', message: /not extensible/v});
 
-	assert.ok(Object.isFrozen(contexts[0]));
+	// The two contexts are built separately, so each has to be frozen on its own.
+	assert.ok(Object.isFrozen(contexts[0]), 'the shouldConsumeRetry context is frozen');
+	assert.ok(Object.isFrozen(contexts[1]), 'the onFailedAttempt context is frozen');
+	assert.notStrictEqual(contexts[0], contexts[1], 'they are distinct objects');
 });
 
 test('onFailedAttempt can be undefined', {timeout: 30_000}, async () => {
@@ -537,7 +552,7 @@ test('handles zero retries', async () => {
 			throw new Error('test');
 		},
 		{retries: 0},
-	));
+	), {message: 'test'});
 
 	assert.equal(attempts, 1); // Should only try once with zero retries
 });
@@ -552,7 +567,7 @@ test('onFailedAttempt still called when retries is zero', async () => {
 		onFailedAttempt() {
 			onFailedAttemptCount++;
 		},
-	}));
+	}), {message: 'fail'});
 
 	assert.equal(onFailedAttemptCount, 1);
 });
@@ -607,7 +622,7 @@ test('handles zero maxRetryTime', async () => {
 			throw new Error('test');
 		},
 		{maxRetryTime: 0},
-	));
+	), {message: 'test'});
 
 	assert.equal(attempts, 1); // Should only try once with zero maxRetryTime
 });
@@ -621,7 +636,7 @@ test('handles synchronous input function', async () => {
 			throw new Error('test');
 		},
 		{retries: 2, minTimeout: 0},
-	));
+	), {message: 'test'});
 
 	assert.equal(attempts, 3); // Initial + 2 retries
 });
@@ -675,7 +690,7 @@ test('makeRetriable passes arguments and options', async () => {
 	};
 
 	const retried = makeRetriable(function_, {retries: 1, minTimeout: 0});
-	await assert.rejects(() => retried('foo', 42));
+	await assert.rejects(() => retried('foo', 42), {message: 'fail'});
 	assert.deepEqual(lastArguments, ['foo', 42]);
 });
 
@@ -726,7 +741,7 @@ test('retriesLeft is Infinity when retries is Infinity', async () => {
 				throw new AbortError('stop');
 			}
 		},
-	}));
+	}), {name: 'AbortError'});
 
 	for (const retriesLeft of observed) {
 		assert.equal(retriesLeft, Infinity);
@@ -803,7 +818,7 @@ test('shouldConsumeRetry sees retryDelay as 0 when retriesLeft is 0', async () =
 			retryDelay = context.retryDelay;
 			return true;
 		},
-	}));
+	}), {message: 'fail'});
 
 	assert.equal(retryDelay, 0);
 });
@@ -825,7 +840,7 @@ test('retryDelay is zero when shouldConsumeRetry skips the retry', async () => {
 				retryDelays.push(retryDelay);
 			},
 		},
-	));
+	), {message: 'test'});
 
 	assert.deepEqual(retryDelays, [0]);
 });
@@ -859,7 +874,7 @@ test('callbacks are skipped or not based on the error type', async () => {
 				calls.push('shouldRetry');
 				return true;
 			},
-		}));
+		}), rejectsWith(error instanceof AbortError ? error.originalError : error));
 
 		assert.deepEqual(calls, expected, label);
 	}
@@ -921,7 +936,7 @@ test('each callback receives its own frozen context object', async () => {
 			contexts.push(context);
 			return false;
 		},
-	}));
+	}), {message: 'fail'});
 
 	assert.equal(contexts.length, 3);
 	// `onFailedAttempt` and `shouldRetry` share one object; only `shouldConsumeRetry` gets its own.
@@ -948,7 +963,7 @@ test('retriesLeft and retriesConsumed always add up to retries', async () => {
 		onFailedAttempt({retriesLeft, retriesConsumed}) {
 			observations.push([retriesLeft, retriesConsumed]);
 		},
-	}));
+	}), {message: 'fail'});
 
 	assert.equal(observations.length, 10);
 	for (const [retriesLeft, retriesConsumed] of observations) {
@@ -969,7 +984,7 @@ test('retryDelay is always a non-negative integer', {timeout: 30_000}, async () 
 		onFailedAttempt({retryDelay}) {
 			retryDelays.push(retryDelay);
 		},
-	}));
+	}), {message: 'fail'});
 
 	assert.equal(retryDelays.length, 6);
 	for (const retryDelay of retryDelays) {
@@ -1003,7 +1018,7 @@ test('the options object is not mutated', async () => {
 
 	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
-	}, options));
+	}, options), {message: 'fail'});
 
 	assert.equal(JSON.stringify(options), before);
 

@@ -44,3 +44,28 @@ export const captureDelays = t => {
 
 	return delays;
 };
+
+// Drives both clocks so a test that has to wait can finish at once and still be charged the time it
+// means to. `performance.now` only moves when something waits, so a budget can never be spent by the
+// machine being slow, which is what made several of these tests pass or fail on load alone.
+export const withFakeTime = async t => {
+	const originalPerformanceNow = performance.now;
+	const originalSetTimeout = setTimeout;
+	const delays = [];
+	let now = 0;
+
+	performance.now = () => now;
+	globalThis.setTimeout = (function_, ms, ...arguments_) => {
+		delays.push(ms);
+		now += ms; // The wait costs what it says, but happens immediately.
+		return originalSetTimeout(function_, 0, ...arguments_);
+	};
+
+	t.after(() => {
+		performance.now = originalPerformanceNow;
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	// `delays` is every delay p-retry scheduled, in order.
+	return {now: () => now, delays};
+};

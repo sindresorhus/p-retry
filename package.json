@@ -55,8 +55,7 @@
 			"no-await-in-loop": "off",
 			"unicorn/no-global-object-property-assignment": "off",
 			"node-test/no-conditional-assertion": "off",
-			"node-test/prefer-test-context-assert": "off",
-			"node-test/require-throws-expectation": "off"
+			"node-test/prefer-test-context-assert": "off"
 		}
 	}
 }

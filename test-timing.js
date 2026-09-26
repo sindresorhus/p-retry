@@ -9,6 +9,7 @@ import {
 	rejectsWith,
 	temporaryScript,
 	captureDelays,
+	withFakeTime,
 } from './helpers.js';
 import pRetry, {AbortError} from './index.js';
 
@@ -46,7 +47,7 @@ test('handles async shouldRetry with maxRetryTime', async t => {
 				return true;
 			},
 		},
-	));
+	), {message: 'test'});
 
 	// Each attempt costs 100ms of a 1000ms budget inside the callback, so the tenth attempt finds
 	// nothing left. Were the callback time not counted, the backoff would schedule 1000, 2000, 4000
@@ -57,7 +58,7 @@ test('handles async shouldRetry with maxRetryTime', async t => {
 
 test('onFailedAttempt can return a promise to add a delay', {timeout: 30_000}, async t => {
 	const waitFor = 100;
-	const delays = captureDelays(t);
+	const {delays} = await withFakeTime(t);
 	let isCalled;
 
 	await pRetry(
@@ -104,7 +105,7 @@ test('factor affects exponential backoff', async t => {
 			maxTimeout: Infinity,
 			randomize: false,
 		},
-	));
+	), {message: 'test'});
 
 	assert.deepEqual(captured, [100, 200, 400]);
 });
@@ -132,7 +133,7 @@ test('timeouts are incremental with factor', async t => {
 			maxTimeout: Infinity,
 			randomize: false,
 		},
-	));
+	), {message: 'test'});
 
 	// With factor 0.5 and minTimeout 100, expected delays: 100, 50, 25 (before rounding)
 	assert.deepEqual(captured, [100, 50, 25]);
@@ -161,7 +162,7 @@ test('setTimeout is never called with 0 minTimeout', async t => {
 			maxTimeout: Infinity,
 			randomize: false,
 		},
-	));
+	), {message: 'test'});
 
 	assert.equal(isCalled, false);
 });
@@ -225,7 +226,7 @@ test('minTimeout is respected even with small factor', async t => {
 			maxTimeout: Infinity,
 			randomize: false,
 		},
-	));
+	), {message: 'test'});
 
 	// First delay is at least minTimeout. Second is minTimeout * 0.1 = 10
 	assert.deepEqual(captured, [100, 10]);
@@ -254,7 +255,7 @@ test('maxTimeout caps retry delays', async t => {
 			maxTimeout: 150,
 			randomize: false,
 		},
-	));
+	), {message: 'test'});
 
 	assert.deepEqual(captured, [100, 150, 150]);
 });
@@ -291,7 +292,7 @@ test('skipped attempts do not impact backoff', async t => {
 			randomize: false,
 			shouldConsumeRetry: ({error}) => error.message !== 'skip',
 		},
-	));
+	), {name: 'Error'});
 
 	// Skip should not shift the backoff sequence; it simply retries without consuming budget.
 	assert.deepEqual(captured, [100, 200, 400]);
@@ -301,7 +302,7 @@ test('skipped attempts do not impact backoff', async t => {
 
 test('shouldConsumeRetry time counts toward maxRetryTime', {timeout: 30_000}, async t => {
 	let attempts = 0;
-	const delays = captureDelays(t);
+	const {delays} = await withFakeTime(t);
 	const maxRetryTime = 200;
 
 	await assert.rejects(pRetry(
@@ -344,7 +345,7 @@ test('delays are clamped to the setTimeout maximum', async t => {
 		retries: 1,
 		minTimeout: 2 ** 31,
 		maxTimeout: Infinity,
-	}));
+	}), {message: 'fail'});
 
 	assert.deepEqual(captured, [(2 ** 31) - 1]);
 });
@@ -373,11 +374,15 @@ test('delays stay 0 when minTimeout is 0 and the factor overflows', async t => {
 		onFailedAttempt({retryDelay}) {
 			retryDelays.push(retryDelay);
 		},
-	}));
+	}), {message: 'test'});
 
 	assert.equal(retryDelays.length, 1031);
 	assert.ok(retryDelays.every(value => !Number.isNaN(value)));
 	assert.ok(scheduledDelays.every(value => !Number.isNaN(value)));
+
+	// The name claims the delays stay at 0, so check that. A zero delay schedules no timer at all.
+	assert.ok(retryDelays.every(value => value === 0), 'every delay is 0');
+	assert.deepEqual(scheduledDelays, [], 'no timer was scheduled');
 });
 
 test('maxTimeout lower than minTimeout caps delay', async t => {
@@ -401,7 +406,7 @@ test('maxTimeout lower than minTimeout caps delay', async t => {
 		minTimeout: 200,
 		maxTimeout: 50,
 		factor: 1,
-	}));
+	}), {message: 'fail'});
 
 	// Capped by `maxTimeout`, so the single delay is 50ms and not `minTimeout` (200ms).
 	assert.deepEqual(captured, [50]);
@@ -436,13 +441,13 @@ test('randomize affects retry delays', async t => {
 			factor: 1,
 			randomize: true,
 		},
-	));
+	), {message: 'test'});
 
 	assert.deepEqual(captured, [100, 200, 150]);
 });
 
 test('maxRetryTime limits total retry duration', {timeout: 30_000}, async t => {
-	const delays = captureDelays(t);
+	const {delays} = await withFakeTime(t);
 	const maxRetryTime = 1000;
 
 	await assert.rejects(pRetry(
@@ -455,7 +460,7 @@ test('maxRetryTime limits total retry duration', {timeout: 30_000}, async t => {
 			minTimeout: 100,
 			maxRetryTime,
 		},
-	));
+	), {message: 'test'});
 
 	// Every wait is trimmed to what is left of the budget, so none of them can run past it.
 	for (const wait of delays) {
@@ -466,7 +471,7 @@ test('maxRetryTime limits total retry duration', {timeout: 30_000}, async t => {
 
 test('onFailedAttempt time counts toward maxRetryTime', {timeout: 30_000}, async t => {
 	let attempts = 0;
-	const delays = captureDelays(t);
+	const {delays} = await withFakeTime(t);
 	const maxRetryTime = 200;
 
 	await assert.rejects(pRetry(
@@ -541,7 +546,7 @@ test('factor <= 0 is treated as 1 (stable delays)', {timeout: 30_000}, async t =
 		factor: 0,
 		// Make delays deterministic
 		randomize: false,
-	}));
+	}), {message: 'retry'});
 
 	// A factor of 0 would otherwise give 100 on the first retry and 0 on every one after it.
 	// The final attempt fails with nothing left to retry, so it never schedules a delay.
@@ -574,7 +579,7 @@ test('unref option prevents timeout from keeping process alive', {timeout: 30_00
 		retries: 2,
 		minTimeout: 50,
 		unref: true,
-	}));
+	}), {message: 'test'});
 
 	assert.ok(isTimeoutUnrefCalled, 'timeout.unref() should be called when unref option is true');
 });
@@ -592,7 +597,7 @@ test('unref option handles missing unref gracefully', {timeout: 30_000}, async t
 
 	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
-	}, {retries: 1, minTimeout: 10, unref: true}));
+	}, {retries: 1, minTimeout: 10, unref: true}), {message: 'fail'});
 });
 
 test('preserves user stack trace through async retries', {timeout: 30_000}, async () => {
@@ -634,11 +639,8 @@ main();
 
 		assert.match(stack, /Error: foo2 failed/v);
 
-		// Print the stack for debugging if needed
-		if (!/foo2/v.test(stack) || !/foo1/v.test(stack) || !/main/v.test(stack)) {
-			console.log('\n==== Full stack trace for debugging ====\n' + stack + '\n==== End stack trace ====\n');
-		}
-
+		// The three assertions below cover the same ground, and report the operand that failed, so
+		// this only printed noise.
 		assert.match(stack, /foo2/v);
 		assert.match(stack, /foo1/v);
 		assert.match(stack, /main/v);
@@ -680,7 +682,7 @@ test('retryDelay is provided in onFailedAttempt context', async t => {
 				retryDelays.push(retryDelay);
 			},
 		},
-	));
+	), {message: 'test'});
 
 	// Verify retryDelay follows exponential backoff formula, ending with 0 when no retry remains
 	assert.deepEqual(retryDelays, [100, 200, 400, 0]);
@@ -729,7 +731,7 @@ test('Only consumed retries advance backoff', async t => {
 			factor,
 			minTimeout,
 		},
-	));
+	), {name: 'Error'});
 
 	assert.deepEqual(contexts.map(context => context.retriesConsumed), [0, 0, 1]);
 	assert.deepEqual(contexts.map(context => context.retriesLeft), [2, 2, 1]);
@@ -765,7 +767,7 @@ test('the delay is truncated to the time left', async t => {
 		retries: 3,
 		minTimeout: 1000,
 		maxRetryTime: 100,
-	}));
+	}), {message: 'fail'});
 
 	assert.deepEqual(captured, [90, 80, 70]);
 });
@@ -792,10 +794,45 @@ test('randomized delays stay within minTimeout and maxTimeout', {timeout: 30_000
 		onFailedAttempt({retryDelay}) {
 			retryDelays.push(retryDelay);
 		},
-	}));
+	}), {message: 'fail'});
 
 	// 100 * ~2 is 200, then the doubling is capped at `maxTimeout`, and the last one has nothing left.
 	assert.deepEqual(retryDelays, [200, 300, 300, 300, 300, 0]);
+});
+
+test('a fractional maxTimeout still gives a whole number of milliseconds', {timeout: 30_000}, async () => {
+	// The backoff is rounded but the cap was not, so a fractional `maxTimeout` leaked through as a
+	// fractional delay. The cap must still be honoured, so it rounds down.
+	const originalSetTimeout = setTimeout;
+
+	try {
+		for (const [maxTimeout, expected] of [[10.5, [10, 10, 10]], [7.5, [7, 7, 7]], [13, [13, 13, 13]], [0, []]]) {
+			const delays = [];
+			globalThis.setTimeout = (function_, ms) => {
+				delays.push(ms);
+				return originalSetTimeout(function_, 0);
+			};
+
+			await pRetry(async () => {
+				throw new Error('fail');
+			}, {
+				retries: 3,
+				minTimeout: 100,
+				factor: 1.5,
+				maxTimeout,
+				randomize: false,
+			}).catch(() => {});
+
+			globalThis.setTimeout = originalSetTimeout;
+
+			// `minTimeout` of 100 is above every cap here, so all three retries are capped. The fourth
+			// attempt has nothing left to retry and schedules nothing, and a cap of 0 skips the timer
+			// entirely rather than scheduling a zero-length wait.
+			assert.deepEqual(delays, expected, `maxTimeout ${maxTimeout}`);
+		}
+	} finally {
+		globalThis.setTimeout = originalSetTimeout;
+	}
 });
 
 test('factor: 1 keeps the delay constant', {timeout: 30_000}, async t => {
@@ -821,7 +858,7 @@ test('factor: 1 keeps the delay constant', {timeout: 30_000}, async t => {
 			minTimeout: 100,
 			randomize: false,
 		},
-	));
+	), {message: 'test'});
 
 	assert.deepEqual(captured, [100, 100, 100]);
 });
@@ -848,7 +885,7 @@ test('maxTimeout: 0 retries without waiting', async t => {
 			minTimeout: 100,
 			maxTimeout: 0,
 		},
-	));
+	), {message: 'test'});
 
 	assert.deepEqual(captured, []);
 });
@@ -917,7 +954,7 @@ test('unref is not applied unless the option is set', {timeout: 30_000}, async t
 
 	await assert.rejects(pRetry(async () => {
 		throw new Error('test');
-	}, {retries: 1, minTimeout: 10}));
+	}, {retries: 1, minTimeout: 10}), {message: 'test'});
 
 	assert.ok(!isUnrefCalled);
 });

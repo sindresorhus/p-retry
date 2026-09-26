@@ -105,7 +105,9 @@ function calculateDelay(retriesConsumed, options) {
 
 	const timeout = Math.round(random * options.minTimeout * (options.factor ** (attempt - 1)));
 
-	return Math.min(timeout, options.maxTimeout, maximumDelay);
+	// `maxTimeout` rounds down, so a fractional cap still gives a whole number of milliseconds while
+	// staying within what the caller asked for. `Math.floor(Infinity)` is `Infinity`.
+	return Math.min(timeout, Math.floor(options.maxTimeout), maximumDelay);
 }
 
 function calculateRemainingTime(start, max) {
