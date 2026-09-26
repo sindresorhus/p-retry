@@ -156,21 +156,47 @@ function stringifyThrownValue(value) {
 // `AbortError` wraps the error the caller actually wants, and the wrappers can be nested, so keep
 // unwrapping until the cause is reached. Otherwise an `AbortError` would escape `pRetry` and a
 // `catch` doing `error instanceof AbortError` would read a real failure as a cancellation.
+//
+// `originalError` is writable and a proxy can hand back a fresh wrapper on every read, so neither a
+// cycle check nor a plain walk terminates on a hostile value. Real nesting is never more than a
+// couple of levels, so stop at a depth nothing legitimate reaches.
+const maximumAbortErrorDepth = 100;
+
+// `instanceof` reads `getPrototypeOf`, which a proxy can make throw, so a hostile value must not be
+// able to turn a type check into the reported failure. Nothing reaches here untrusted except a thrown
+// value, so a failed check just means "not that type".
+function isInstanceOf(value, constructor) {
+	try {
+		return value instanceof constructor;
+	} catch {
+		return false;
+	}
+}
+
 function unwrapAbortError(error) {
 	let cause = error;
-	// `originalError` is writable, so it can point back into the chain. Track what has been seen so
-	// that a cycle stops here rather than spinning on a synchronous loop.
-	const seen = new Set([cause]);
 
-	while (cause instanceof AbortError) {
-		const {originalError} = cause;
+	for (let depth = 0; depth < maximumAbortErrorDepth; depth++) {
+		// `originalError` is writable, so a getter can throw, and a proxy can throw from
+		// `getPrototypeOf`. Neither is a reason to report something other than the cause.
+		let wrapped;
 
-		if (!(originalError instanceof Error) || seen.has(originalError)) {
+		try {
+			if (!isInstanceOf(cause, AbortError)) {
+				break;
+			}
+
+			({originalError: wrapped} = cause);
+		} catch {
 			break;
 		}
 
-		seen.add(originalError);
-		cause = originalError;
+		// Not an error to unwrap to, so this is the cause as far as it goes.
+		if (!isInstanceOf(wrapped, Error)) {
+			break;
+		}
+
+		cause = wrapped;
 	}
 
 	return cause;
@@ -182,7 +208,7 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		options.signal?.throwIfAborted();
 	};
 
-	const normalizedError = error instanceof Error
+	const normalizedError = isInstanceOf(error, Error)
 		? error
 		: new TypeError(`Non-error was thrown: "${stringifyThrownValue(error)}". You should only throw errors.`);
 
@@ -191,7 +217,7 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	// let an `AbortError` from the operation outrank a cancellation the caller asked for.
 	abortIfNeeded();
 
-	if (normalizedError instanceof AbortError) {
+	if (isInstanceOf(normalizedError, AbortError)) {
 		throw unwrapAbortError(normalizedError);
 	}
 
