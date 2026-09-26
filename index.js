@@ -186,12 +186,14 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		? error
 		: new TypeError(`Non-error was thrown: "${stringifyThrownValue(error)}". You should only throw errors.`);
 
+	// Checked before unwrapping an `AbortError`, because the reason a caller aborted with is final.
+	// Unwrapping it would replace the reason they chose with whatever is inside it, and it would also
+	// let an `AbortError` from the operation outrank a cancellation the caller asked for.
+	abortIfNeeded();
+
 	if (normalizedError instanceof AbortError) {
 		throw unwrapAbortError(normalizedError);
 	}
-
-	// An aborted operation never got a chance to fail, so no callback should run for it.
-	abortIfNeeded();
 
 	const retriesLeft = Number.isFinite(options.retries)
 		? Math.max(0, options.retries - retriesConsumed)

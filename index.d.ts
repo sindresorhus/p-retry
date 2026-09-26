@@ -3,7 +3,9 @@ export class AbortError extends Error {
 	readonly originalError: Error;
 
 	/**
-	Abort retrying and reject the promise. No callback functions will be called.
+	Throw this from `input` to abort retrying and reject the promise. No callback functions will be called.
+
+	When `input` throws an `AbortError`, the promise rejects with the wrapped error. When you pass an error, a `catch` sees that error. When you pass a message, it sees a plain `Error` with that message. An `AbortError` thrown by a callback or passed as a `signal` abort reason is preserved as is.
 
 	@param message - An error message or a custom error.
 	*/

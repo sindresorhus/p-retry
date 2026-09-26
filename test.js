@@ -1,3 +1,4 @@
+import {getEventListeners} from 'node:events';
 import test from 'ava';
 import delay from 'delay';
 import {fixture, fixtureError} from './helpers.js';
@@ -476,6 +477,33 @@ test('a cycle in originalError does not hang', async t => {
 	}, {retries: 5, minTimeout: 0}), {instanceOf: Error});
 
 	t.true(error === outer || error === inner);
+});
+
+test('a signal reason is not unwrapped, and wins over an AbortError', async t => {
+	// The caller picks the reason for a cancellation, so it is final. Unwrapping it would replace the
+	// reason they chose with whatever is inside it.
+	const wrapped = new AbortError(fixtureError);
+	const controller = new AbortController();
+
+	await t.throwsAsync(pRetry(async () => {
+		controller.abort(wrapped);
+		throw new AbortError('from the operation');
+	}, {
+		signal: controller.signal,
+		minTimeout: 0,
+	}), {is: wrapped});
+
+	// Cancelling wins over an AbortError the operation threw, since the caller asked to stop.
+	const cancelled = new Error('caller cancelled');
+	const second = new AbortController();
+
+	await t.throwsAsync(pRetry(async () => {
+		second.abort(cancelled);
+		throw new AbortError(fixtureError);
+	}, {
+		signal: second.signal,
+		minTimeout: 0,
+	}), {is: cancelled});
 });
 
 test('aborts', async t => {
@@ -1315,6 +1343,174 @@ test('maxRetryTime does not interrupt an attempt that is already running', async
 	}, {maxRetryTime: 10, retries: 0});
 
 	t.is(result, fixture);
+});
+
+test('the options object is not mutated', async t => {
+	// `pRetry` normalizes the options it is given, so writing through to the caller's object would
+	// change the behaviour of the next call. `makeRetriable` shares one object across all of its calls.
+	const options = {
+		retries: 2,
+		factor: 0.5,
+		minTimeout: 0,
+		maxTimeout: 5,
+		randomize: false,
+	};
+	const before = JSON.stringify(options);
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, options));
+
+	t.is(JSON.stringify(options), before);
+
+	const shared = {retries: 1, minTimeout: 0};
+	const retried = makeRetriable(async () => {
+		throw new Error('fail');
+	}, shared);
+
+	await t.throwsAsync(() => retried());
+	await t.throwsAsync(() => retried());
+
+	t.deepEqual(shared, {retries: 1, minTimeout: 0});
+});
+
+test('a rejected promise from a callback aborts the retries', async t => {
+	// The existing coverage only throws synchronously; an async callback rejects the same way.
+	for (const name of ['onFailedAttempt', 'shouldConsumeRetry', 'shouldRetry']) {
+		const thrown = new Error(`from ${name}`);
+		let calls = 0;
+		const options = {
+			retries: 5,
+			minTimeout: 0,
+			async onFailedAttempt() {},
+			async shouldRetry() {},
+			async shouldConsumeRetry() {},
+		};
+
+		options[name] = async () => {
+			throw thrown;
+		};
+
+		await t.throwsAsync(pRetry(async () => {
+			calls++;
+			throw new Error('fail');
+		}, options), {is: thrown});
+
+		t.is(calls, 1, `${name}`);
+	}
+});
+
+test('a callback may return a thenable', async t => {
+	let resolved = false;
+	let calls = 0;
+
+	await pRetry(async () => {
+		calls++;
+		if (calls > 1) {
+			return fixture;
+		}
+
+		throw new Error('fail');
+	}, {
+		minTimeout: 0,
+		onFailedAttempt() {
+			return {
+				then(resolve) { // eslint-disable-line unicorn/no-thenable -- A callback may return anything promise-like.
+					setTimeout(() => {
+						resolved = true;
+						resolve();
+					}, 10);
+				},
+			};
+		},
+	});
+
+	// The retry only happened because the thenable was awaited first.
+	t.true(resolved);
+	t.is(calls, 2);
+});
+
+test('concurrent calls through one retrier are independent', async t => {
+	let attempts = 0;
+	const retried = makeRetriable(async value => {
+		attempts++;
+		if (attempts < 3) {
+			throw new Error('fail');
+		}
+
+		return value * 2;
+	}, {retries: 5, minTimeout: 0});
+
+	t.deepEqual(await Promise.all([retried(1), retried(2), retried(3)]), [2, 4, 6]);
+});
+
+test('NaN numeric options throw', async t => {
+	const messages = {
+		factor: 'Expected `factor` to be a number.',
+		minTimeout: 'Expected `minTimeout` to be a number.',
+		maxTimeout: 'Expected `maxTimeout` to be a number or Infinity.',
+		maxRetryTime: 'Expected `maxRetryTime` to be a number or Infinity.',
+	};
+
+	// `NaN` is a number, so it needs its own check. The two options that take `Infinity` have nothing
+	// later to catch it, and a `NaN` delay fires straight away.
+	for (const [name, message] of Object.entries(messages)) {
+		await t.throwsAsync(pRetry(async () => {}, {[name]: Number.NaN}), {
+			instanceOf: TypeError,
+			message,
+		});
+	}
+});
+
+test('AbortError is named and identifies itself as such', t => {
+	// `name` is part of the public shape, and a log line that does not say what went wrong is worse
+	// than one that does.
+	t.is(new AbortError('fixture').name, 'AbortError');
+	t.is(new AbortError(new Error('fixture')).name, 'AbortError');
+	t.is(new (class AbortErrorSubclass extends AbortError {
+		constructor() {
+			super('fixture');
+		}
+	})().name, 'AbortError');
+	t.true(new AbortError('fixture') instanceof Error);
+});
+
+test('the abort listener is removed once the delay is over', async t => {
+	// A signal that is reused across retries, or shared between calls, would otherwise collect one
+	// stale listener per delay and eventually trip Node's max-listeners warning.
+	const controller = new AbortController();
+
+	for (let index = 0; index < 5; index++) {
+		let calls = 0;
+		await pRetry(async () => {
+			calls++;
+			if (calls > 1) {
+				return fixture;
+			}
+
+			throw new Error('fail');
+		}, {signal: controller.signal, minTimeout: 1, retries: 1});
+	}
+
+	t.is(getEventListeners(controller.signal, 'abort').length, 0);
+});
+
+test('the abort listener is removed when the delay is aborted', async t => {
+	const controller = new AbortController();
+
+	setTimeout(() => {
+		controller.abort(fixtureError);
+	}, 5);
+
+	await t.throwsAsync(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		signal: controller.signal,
+		retries: 5,
+		minTimeout: 5000,
+	}), {is: fixtureError});
+
+	t.is(getEventListeners(controller.signal, 'abort').length, 0);
 });
 
 test('makeRetriable works without options', async t => {
