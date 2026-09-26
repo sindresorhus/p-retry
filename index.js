@@ -19,6 +19,8 @@ function validateRetries(retries) {
 }
 
 function validateNumberOption(name, value, {min = 0, allowInfinity = false} = {}) {
+	// No caller reaches this with `undefined`, since every numeric option is defaulted first. Kept so
+	// the helper stays safe to use on its own.
 	if (value === undefined) {
 		return;
 	}
@@ -331,7 +333,9 @@ export default async function pRetry(input, options = {}) {
 		}
 	}
 
-	// Should not reach here, but in case it does, throw an error
+	// Unreachable: `onAttemptFailure` throws once `retriesLeft` reaches 0, which is the same state the
+	// loop condition tests, so the loop is always left by a throw. Kept as a guard against a future
+	// change to either side breaking that pairing.
 	throw new Error('Retry attempts exhausted without throwing an error.');
 }
 
