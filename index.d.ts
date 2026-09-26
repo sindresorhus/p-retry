@@ -7,7 +7,6 @@ export class AbortError extends Error {
 
 	When `input` throws an `AbortError`, the promise rejects with the wrapped error. When you pass an error, a `catch` sees that error. When you pass a message, it sees a plain `Error` with that message. An `AbortError` thrown by a callback or passed as a `signal` abort reason is preserved as is.
 
-
 	@param message - An error message or a custom error.
 	*/
 	constructor(message?: string | Error);
@@ -265,7 +264,7 @@ console.log(await pRetry(run, {retries: 5}));
 */
 export default function pRetry<T>(
 	input: (attemptNumber: number) => PromiseLike<T> | T,
-	options?: Options
+	options?: Options,
 ): Promise<T>;
 
 /**
@@ -282,5 +281,5 @@ const response = await fetchWithRetry('https://sindresorhus.com/unicorn');
 */
 export function makeRetriable<Arguments extends readonly unknown[], Result>(
 	function_: (...arguments_: Arguments) => PromiseLike<Result> | Result,
-	options?: Options
+	options?: Options,
 ): (...arguments_: Arguments) => Promise<Result>;

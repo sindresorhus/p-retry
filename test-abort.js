@@ -1,65 +1,66 @@
 import {getEventListeners} from 'node:events';
-import test from 'ava';
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
 import delay from 'delay';
-import {fixture, fixtureError} from './helpers.js';
+import {fixture, fixtureError, rejectsWith} from './helpers.js';
 import pRetry, {AbortError} from './index.js';
 
-test('AbortError - string', t => {
+test('AbortError - string', () => {
 	const error = new AbortError('fixture').originalError;
-	t.is(error.constructor.name, 'Error');
-	t.is(error.message, 'fixture');
+	assert.equal(error.constructor.name, 'Error');
+	assert.equal(error.message, 'fixture');
 });
 
-test('AbortError - error', t => {
+test('AbortError - error', () => {
 	const error = new AbortError(new Error('fixture')).originalError;
-	t.is(error.constructor.name, 'Error');
-	t.is(error.message, 'fixture');
+	assert.equal(error.constructor.name, 'Error');
+	assert.equal(error.message, 'fixture');
 });
 
-test('AbortError - stack trace keeps the message', t => {
+test('AbortError - stack trace keeps the message', () => {
 	// The thrown error is `originalError`, so its stack must still name the failure and point at the caller.
 	const {stack} = new AbortError('fixture').originalError;
-	t.true(stack.startsWith('Error: fixture'));
-	t.true(stack.includes('new AbortError'));
-	t.true(stack.includes('test.js'));
+	assert.ok(stack.startsWith('Error: fixture'));
+	assert.ok(stack.includes('new AbortError'));
+	assert.ok(stack.includes('test-abort.js'));
 });
 
-test('AbortError - message is always a string', t => {
+test('AbortError - message is always a string', () => {
 	// `Error` stringifies a non-string message, so `AbortError` must too.
-	t.is(new AbortError(42).message, '42');
-	t.is(new AbortError().message, '');
-	t.is(new AbortError().message, new AbortError().originalError.message);
+	assert.equal(new AbortError(42).message, '42');
+	assert.equal(new AbortError().message, '');
+	assert.equal(new AbortError().message, new AbortError().originalError.message);
 });
 
-test('AbortSignal short-circuits callbacks', async t => {
+test('AbortSignal short-circuits callbacks', async () => {
 	const controller = new AbortController();
 	let attempts = 0;
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		attempts++;
 		controller.abort(fixtureError);
 		return fixture;
 	}, {
 		signal: controller.signal,
 		onFailedAttempt() {
-			t.fail('onFailedAttempt should not fire');
+			assert.fail('onFailedAttempt should not fire');
 		},
 		shouldRetry() {
-			t.fail('shouldRetry should not fire');
+			assert.fail('shouldRetry should not fire');
 		},
 		shouldConsumeRetry() {
-			t.fail('shouldConsumeRetry should not fire');
+			assert.fail('shouldConsumeRetry should not fire');
 		},
-	}), {is: fixtureError});
+	}), rejectsWith(fixtureError));
 
-	t.is(attempts, 1);
+	assert.equal(attempts, 1);
 });
 
-test('aborting inside shouldConsumeRetry skips the later callbacks', async t => {
+test('aborting inside shouldConsumeRetry skips the later callbacks', async () => {
 	const controller = new AbortController();
 	const calls = [];
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
 	}, {
 		signal: controller.signal,
@@ -76,16 +77,16 @@ test('aborting inside shouldConsumeRetry skips the later callbacks', async t => 
 			calls.push('shouldRetry');
 			return true;
 		},
-	}), {is: fixtureError});
+	}), rejectsWith(fixtureError));
 
-	t.deepEqual(calls, ['shouldConsumeRetry']);
+	assert.deepEqual(calls, ['shouldConsumeRetry']);
 });
 
-test('aborting inside onFailedAttempt skips shouldRetry', async t => {
+test('aborting inside onFailedAttempt skips shouldRetry', async () => {
 	const controller = new AbortController();
 	const calls = [];
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
 	}, {
 		signal: controller.signal,
@@ -98,41 +99,39 @@ test('aborting inside onFailedAttempt skips shouldRetry', async t => {
 			calls.push('shouldRetry');
 			return true;
 		},
-	}), {is: fixtureError});
+	}), rejectsWith(fixtureError));
 
-	t.deepEqual(calls, ['onFailedAttempt']);
+	assert.deepEqual(calls, ['onFailedAttempt']);
 });
 
-test('a nested AbortError is unwrapped all the way down', async t => {
+test('a nested AbortError is unwrapped all the way down', async () => {
 	// Left wrapped, the real cause would be buried and `error.name` would claim a cancellation.
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		throw new AbortError(new AbortError(fixtureError));
-	}, {retries: 5, minTimeout: 0}), {is: fixtureError});
+	}, {retries: 5, minTimeout: 0}), rejectsWith(fixtureError));
 });
 
-test('throws on an invalid signal', async t => {
+test('throws on an invalid signal', async () => {
 	// Otherwise the failure surfaces as "options.signal?.throwIfAborted is not a function".
 	for (const signal of [true, 'abort', {}, {throwIfAborted() {}, addEventListener() {}}]) {
-		await t.throwsAsync(pRetry(async () => {}, {signal}), {
-			instanceOf: TypeError,
+		await assert.rejects(pRetry(async () => {}, {signal}), {
+			name: 'TypeError',
 			message: 'Expected `signal` to be an AbortSignal.',
 		});
 	}
 });
 
-test('an AbortError with an unusable originalError still rejects with an error', async t => {
+test('an AbortError with an unusable originalError still rejects with an error', async () => {
 	// `originalError` is writable, so it can be left pointing at nothing.
 	const abortError = new AbortError('stop');
 	abortError.originalError = undefined;
 
-	const error = await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		throw abortError;
-	}, {retries: 5, minTimeout: 0}), {instanceOf: Error});
-
-	t.is(error, abortError);
+	}, {retries: 5, minTimeout: 0}), rejectsWith(abortError));
 });
 
-test('aborting while the operation is in flight stops it without waiting out the delay', async t => {
+test('aborting while the operation is in flight stops it without waiting out the delay', {timeout: 10_000}, async () => {
 	const controller = new AbortController();
 	const calls = [];
 
@@ -140,7 +139,7 @@ test('aborting while the operation is in flight stops it without waiting out the
 		controller.abort(fixtureError);
 	}, 20);
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		// Settles only when the signal aborts, the way a request bound to the signal would.
 		const {promise, reject} = Promise.withResolvers();
 		controller.signal.addEventListener('abort', () => {
@@ -157,12 +156,12 @@ test('aborting while the operation is in flight stops it without waiting out the
 			calls.push('shouldRetry');
 			return true;
 		},
-	}), {is: fixtureError});
+	}), rejectsWith(fixtureError));
 
-	t.deepEqual(calls, []);
+	assert.deepEqual(calls, []);
 });
 
-test('an AbortError that throws while being unwrapped still rejects with a real error', async t => {
+test('an AbortError that throws while being unwrapped still rejects with a real error', async () => {
 	// `originalError` is writable, so a getter can throw, and a proxy can throw from
 	// `getPrototypeOf`. Neither should be reported in place of the cause.
 	const thrower = new AbortError('stop');
@@ -190,7 +189,7 @@ test('an AbortError that throws while being unwrapped still rejects with a real 
 	}
 
 	// Nothing to unwrap to, so the wrapper itself is the answer.
-	t.is(caught, thrower);
+	assert.equal(caught, thrower);
 
 	// A proxy that throws from `getPrototypeOf` cannot be recognised as an error at all, so it goes
 	// down the non-error path rather than reporting its own trap.
@@ -204,10 +203,10 @@ test('an AbortError that throws while being unwrapped still rejects with a real 
 		caught = error;
 	}
 
-	t.is(caught.message, 'Non-error was thrown: "AbortError: stop". You should only throw errors.');
+	assert.equal(caught.message, 'Non-error was thrown: "AbortError: stop". You should only throw errors.');
 });
 
-test('a cycle in originalError does not hang', async t => {
+test('a cycle in originalError does not hang', async () => {
 	const outer = new AbortError('outer');
 	const inner = new AbortError('inner');
 	outer.originalError = inner;
@@ -215,41 +214,39 @@ test('a cycle in originalError does not hang', async t => {
 
 	// A synchronous spin here would block the event loop, so the test would time out. Unwrapping
 	// walks one link and then meets the cycle, so either wrapper is an acceptable result.
-	const error = await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		throw outer;
-	}, {retries: 5, minTimeout: 0}), {instanceOf: Error});
-
-	t.true(error === outer || error === inner);
+	}, {retries: 5, minTimeout: 0}), error => error === outer || error === inner);
 });
 
-test('a signal reason is not unwrapped, and wins over an AbortError', async t => {
+test('a signal reason is not unwrapped, and wins over an AbortError', async () => {
 	// The caller picks the reason for a cancellation, so it is final. Unwrapping it would replace the
 	// reason they chose with whatever is inside it.
 	const wrapped = new AbortError(fixtureError);
 	const controller = new AbortController();
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		controller.abort(wrapped);
 		throw new AbortError('from the operation');
 	}, {
 		signal: controller.signal,
 		minTimeout: 0,
-	}), {is: wrapped});
+	}), rejectsWith(wrapped));
 
 	// Cancelling wins over an AbortError the operation threw, since the caller asked to stop.
 	const cancelled = new Error('caller cancelled');
 	const second = new AbortController();
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		second.abort(cancelled);
 		throw new AbortError(fixtureError);
 	}, {
 		signal: second.signal,
 		minTimeout: 0,
-	}), {is: cancelled});
+	}), rejectsWith(cancelled));
 });
 
-test('a chain of wrappers that never ends does not hang', async t => {
+test('a chain of wrappers that never ends does not hang', async () => {
 	// A proxy can hand back a fresh wrapper on every read, so tracking the wrappers already seen
 	// never matches and the walk spins on a synchronous loop, blocking the event loop.
 	const lie = () => new Proxy(new AbortError('lying'), {
@@ -268,27 +265,26 @@ test('a chain of wrappers that never ends does not hang', async t => {
 		thrown = error;
 	}
 
-	// Not `t.throwsAsync`, which would have to structured-clone the proxy out of the AVA worker.
-	t.true(thrown instanceof Error);
-	t.is(thrown.message, 'lying');
+	assert.ok(thrown instanceof Error);
+	assert.equal(thrown.message, 'lying');
 });
 
-test('aborts', async t => {
+test('aborts', {timeout: 60_000}, async () => {
 	let index = 0;
 
-	await t.throwsAsync(pRetry(async attemptNumber => {
+	await assert.rejects(pRetry(async attemptNumber => {
 		await delay(40);
 		index++;
 		return attemptNumber === 3 ? Promise.reject(new AbortError(fixtureError)) : Promise.reject(fixtureError);
-	}), {is: fixtureError});
+	}), rejectsWith(fixtureError));
 
-	t.is(index, 3);
+	assert.equal(index, 3);
 });
 
-test('operation stops immediately on AbortError', async t => {
+test('operation stops immediately on AbortError', async () => {
 	let attempts = 0;
 
-	await t.throwsAsync(pRetry(
+	await assert.rejects(pRetry(
 		async () => {
 			attempts++;
 			if (attempts === 2) {
@@ -303,76 +299,78 @@ test('operation stops immediately on AbortError', async t => {
 		},
 	));
 
-	t.is(attempts, 2); // Should stop after AbortError
+	assert.equal(attempts, 2); // Should stop after AbortError
 });
 
-test('shouldRetry is not called for AbortError', async t => {
-	let shouldRetryCalled = 0;
+test('shouldRetry is not called for AbortError', async () => {
+	let retryDecisionCount = 0;
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		throw new AbortError('stop');
 	}, {
 		shouldRetry() {
-			shouldRetryCalled++;
+			retryDecisionCount++;
 			return true;
 		},
 	}), {message: 'stop'});
 
-	t.is(shouldRetryCalled, 0);
+	assert.equal(retryDecisionCount, 0);
 });
 
-test('AbortError short-circuits callbacks', async t => {
+test('AbortError short-circuits callbacks', async () => {
 	const originalError = new Error('stop');
 	let attempts = 0;
 
-	const error = await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		attempts++;
 		throw new AbortError(originalError);
 	}, {
 		onFailedAttempt() {
-			t.fail('onFailedAttempt should not fire');
+			assert.fail('onFailedAttempt should not fire');
 		},
 		shouldRetry() {
-			t.fail('shouldRetry should not fire');
+			assert.fail('shouldRetry should not fire');
 		},
 		shouldConsumeRetry() {
-			t.fail('shouldConsumeRetry should not fire');
+			assert.fail('shouldConsumeRetry should not fire');
 		},
 		retries: 5,
 		minTimeout: 0,
-	}));
+	}), rejectsWith(originalError));
 
-	t.is(error, originalError);
-	t.is(attempts, 1);
+	assert.equal(attempts, 1);
 });
 
-// AVA does not support DOMException.
-// test('aborts with an AbortSignal', async t => {
-// 	let index = 0;
-// 	const controller = new AbortController();
-
-// 	await t.throwsAsync(pRetry(async ({attemptNumber}) => {
-// 		await delay(40);
-// 		index++;
-// 		if (attemptNumber === 3) {
-// 			controller.abort();
-// 		}
-
-// 		throw fixtureError;
-// 	}, {
-// 		signal: controller.signal,
-// 	}), {
-// 		instanceOf: DOMException,
-// 	});
-
-// 	t.is(index, 3);
-// });
-
-test('preserves the abort reason', async t => {
+test('aborts with an AbortSignal', {timeout: 60_000}, async () => {
 	let index = 0;
 	const controller = new AbortController();
 
-	await t.throwsAsync(pRetry(async attemptNumber => {
+	// `pRetry` passes the attempt number itself, not an object holding it. Destructuring meant the
+	// abort never fired and the run retried with exponential backoff until the timeout.
+	await assert.rejects(
+		pRetry(async attemptNumber => {
+			await delay(40);
+			index++;
+			if (attemptNumber === 3) {
+				controller.abort();
+			}
+
+			throw fixtureError;
+		}, {
+			signal: controller.signal,
+		}),
+		// A default abort reason is a `DOMException`, but its `name` is `AbortError`.
+		error => error instanceof DOMException,
+	);
+
+	assert.equal(index, 3);
+});
+
+test('preserves the abort reason', {timeout: 60_000}, async () => {
+	let index = 0;
+	const controller = new AbortController();
+
+	await assert.rejects(pRetry(async attemptNumber => {
 		await delay(40);
 		index++;
 		if (attemptNumber === 3) {
@@ -383,29 +381,27 @@ test('preserves the abort reason', async t => {
 		throw fixtureError;
 	}, {
 		signal: controller.signal,
-	}), {
-		is: fixtureError,
-	});
+	}), rejectsWith(fixtureError));
 
-	t.is(index, 3);
+	assert.equal(index, 3);
 });
 
-test('aborts immediately if signal is already aborted with reason', async t => {
+test('aborts immediately if signal is already aborted with reason', async () => {
 	let called = 0;
 	const controller = new AbortController();
 	controller.abort(fixtureError);
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		called++;
 		throw new Error('should not run');
 	}, {
 		signal: controller.signal,
-	}), {is: fixtureError});
+	}), rejectsWith(fixtureError));
 
-	t.is(called, 0);
+	assert.equal(called, 0);
 });
 
-test('a non-Error abort reason is preserved verbatim', async t => {
+test('a non-Error abort reason is preserved verbatim', async () => {
 	for (const reason of ['a string', 42, {custom: true}]) {
 		const controller = new AbortController();
 		let thrown;
@@ -419,11 +415,11 @@ test('a non-Error abort reason is preserved verbatim', async t => {
 			thrown = error;
 		}
 
-		t.is(thrown, reason);
+		assert.equal(thrown, reason);
 	}
 });
 
-test('a cancellation is final whatever a callback returns', async t => {
+test('a cancellation is final whatever a callback returns', async () => {
 	// Aborting inside a callback used to change the reported error depending on what that callback
 	// returned, and the operation error could be discarded even when no retry was going to follow.
 	for (const [abortIn, returnsTrue] of [
@@ -444,13 +440,13 @@ test('a cancellation is final whatever a callback returns', async t => {
 			},
 		};
 
-		await t.throwsAsync(pRetry(async () => {
+		await assert.rejects(pRetry(async () => {
 			throw new Error('operation failed');
-		}, options), {is: fixtureError}, `${abortIn} returning ${returnsTrue}`);
+		}, options), rejectsWith(fixtureError), `${abortIn} returning ${returnsTrue}`);
 	}
 });
 
-test('a shared signal aborts every concurrent retry', async t => {
+test('a shared signal aborts every concurrent retry', {timeout: 10_000}, async () => {
 	const controller = new AbortController();
 	let firstCalls = 0;
 	let secondCalls = 0;
@@ -469,29 +465,29 @@ test('a shared signal aborts every concurrent retry', async t => {
 	}, {signal: controller.signal, minTimeout: 10_000});
 
 	for (const result of await Promise.allSettled([first, second])) {
-		t.is(result.status, 'rejected');
-		t.is(result.reason, fixtureError);
+		assert.equal(result.status, 'rejected');
+		assert.equal(result.reason, fixtureError);
 	}
 
 	// Both started, and neither got a second attempt.
-	t.is(firstCalls, 1);
-	t.is(secondCalls, 1);
+	assert.equal(firstCalls, 1);
+	assert.equal(secondCalls, 1);
 });
 
-test('AbortError is named and identifies itself as such', t => {
+test('AbortError is named and identifies itself as such', () => {
 	// `name` is part of the public shape, and a log line that does not say what went wrong is worse
 	// than one that does.
-	t.is(new AbortError('fixture').name, 'AbortError');
-	t.is(new AbortError(new Error('fixture')).name, 'AbortError');
-	t.is(new (class AbortErrorSubclass extends AbortError {
+	assert.equal(new AbortError('fixture').name, 'AbortError');
+	assert.equal(new AbortError(new Error('fixture')).name, 'AbortError');
+	assert.equal(new (class AbortErrorSubclass extends AbortError {
 		constructor() {
 			super('fixture');
 		}
 	})().name, 'AbortError');
-	t.true(new AbortError('fixture') instanceof Error);
+	assert.ok(new AbortError('fixture') instanceof Error);
 });
 
-test('the abort listener is removed once the delay is over', async t => {
+test('the abort listener is removed once the delay is over', {timeout: 30_000}, async () => {
 	// A signal that is reused across retries, or shared between calls, would otherwise collect one
 	// stale listener per delay and eventually trip Node's max-listeners warning.
 	const controller = new AbortController();
@@ -508,23 +504,23 @@ test('the abort listener is removed once the delay is over', async t => {
 		}, {signal: controller.signal, minTimeout: 1, retries: 1});
 	}
 
-	t.is(getEventListeners(controller.signal, 'abort').length, 0);
+	assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
 });
 
-test('the abort listener is removed when the delay is aborted', async t => {
+test('the abort listener is removed when the delay is aborted', {timeout: 10_000}, async () => {
 	const controller = new AbortController();
 
 	setTimeout(() => {
 		controller.abort(fixtureError);
 	}, 5);
 
-	await t.throwsAsync(pRetry(async () => {
+	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
 	}, {
 		signal: controller.signal,
 		retries: 5,
 		minTimeout: 5000,
-	}), {is: fixtureError});
+	}), rejectsWith(fixtureError));
 
-	t.is(getEventListeners(controller.signal, 'abort').length, 0);
+	assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
 });

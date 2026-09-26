@@ -5,11 +5,7 @@
 	"license": "MIT",
 	"repository": "sindresorhus/p-retry",
 	"funding": "https://github.com/sponsors/sindresorhus",
-	"author": {
-		"name": "Sindre Sorhus",
-		"email": "sindresorhus@gmail.com",
-		"url": "https://sindresorhus.com"
-	},
+	"author": "Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)",
 	"type": "module",
 	"exports": {
 		"types": "./index.d.ts",
@@ -20,7 +16,7 @@
 		"node": ">=22"
 	},
 	"scripts": {
-		"test": "xo && ava && tsd"
+		"test": "xo && node --test && tsd"
 	},
 	"files": [
 		"index.js",
@@ -46,18 +42,21 @@
 		"bluebird"
 	],
 	"dependencies": {
-		"is-network-error": "^1.3.0"
+		"is-network-error": "^1.3.2"
 	},
 	"devDependencies": {
-		"ava": "^6.4.1",
 		"delay": "^7.0.0",
-		"execa": "^9.6.1",
+		"execa": "^10.0.1",
 		"tsd": "^0.33.0",
-		"xo": "^1.2.3"
+		"xo": "^5.0.1"
 	},
 	"xo": {
 		"rules": {
-			"no-await-in-loop": "off"
+			"no-await-in-loop": "off",
+			"unicorn/no-global-object-property-assignment": "off",
+			"node-test/no-conditional-assertion": "off",
+			"node-test/prefer-test-context-assert": "off",
+			"node-test/require-throws-expectation": "off"
 		}
 	}
 }

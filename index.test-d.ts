@@ -42,7 +42,7 @@ expectType<AbortError>(new AbortError('foo'));
 
 // Options that the runtime accepts.
 expectType<Promise<string>>(pRetry(() => 'foo', {
-	retries: Number.POSITIVE_INFINITY,
+	retries: Infinity,
 	factor: 1.5,
 	minTimeout: 0,
 	maxTimeout: 1000,

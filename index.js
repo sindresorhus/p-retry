@@ -10,6 +10,9 @@ function validateRetries(retries) {
 			throw new TypeError('Expected `retries` to be a valid number or Infinity, got NaN.');
 		}
 
+		// Not `Number.isSafeInteger`, which would reject a huge `retries`. That is accepted on purpose
+		// and behaves as effectively forever.
+		// eslint-disable-next-line unicorn/prefer-number-is-safe-integer
 		if (Number.isFinite(retries) && !Number.isInteger(retries)) {
 			throw new TypeError('Expected `retries` to be a non-negative integer or Infinity.');
 		}
@@ -34,7 +37,7 @@ function validateNumberOption(name, value, {min = 0, allowInfinity = false} = {}
 	}
 
 	if (value < min) {
-		throw new TypeError(`Expected \`${name}\` to be \u2265 ${min}.`);
+		throw new TypeError(`Expected \`${name}\` to be \u{2265} ${min}.`);
 	}
 }
 
@@ -106,11 +109,7 @@ function calculateDelay(retriesConsumed, options) {
 }
 
 function calculateRemainingTime(start, max) {
-	if (!Number.isFinite(max)) {
-		return max;
-	}
-
-	return max - (performance.now() - start);
+	return Number.isFinite(max) ? max - (performance.now() - start) : max;
 }
 
 async function delayForRetry(delay, options) {
@@ -225,7 +224,7 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		? Math.max(0, options.retries - retriesConsumed)
 		: options.retries;
 
-	const maxRetryTime = options.maxRetryTime ?? Number.POSITIVE_INFINITY;
+	const maxRetryTime = options.maxRetryTime ?? Infinity;
 	// Out of time already, so the callbacks must be told that no retry follows.
 	const timeLeft = calculateRemainingTime(startTime, maxRetryTime);
 	const delayTime = timeLeft > 0 ? calculateDelay(retriesConsumed, options) : 0;
@@ -259,11 +258,10 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 
 	const remainingTime = calculateRemainingTime(startTime, maxRetryTime);
 
-	if (remainingTime <= 0 || retriesLeft <= 0) {
-		throw normalizedError;
-	}
-
-	if (isInstanceOf(normalizedError, TypeError) && !isNetworkError(normalizedError)) {
+	// No time or budget left, or a failure that retrying cannot help with.
+	if (remainingTime <= 0
+		|| retriesLeft <= 0
+		|| (isInstanceOf(normalizedError, TypeError) && !isNetworkError(normalizedError))) {
 		throw normalizedError;
 	}
 
@@ -315,8 +313,8 @@ export default async function pRetry(input, options = {}) {
 
 	options.factor ??= 2;
 	options.minTimeout ??= 1000;
-	options.maxTimeout ??= Number.POSITIVE_INFINITY;
-	options.maxRetryTime ??= Number.POSITIVE_INFINITY;
+	options.maxTimeout ??= Infinity;
+	options.maxRetryTime ??= Infinity;
 	options.randomize ??= false;
 	options.onFailedAttempt ??= () => {};
 	options.shouldRetry ??= () => true;

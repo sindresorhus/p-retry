@@ -45,12 +45,18 @@ test('a value that throws from getPrototypeOf later is not reported as the failu
 		},
 	});
 
-	const error = await pRetry(async () => {
-		throw hostile;
-	}, {retries: 1, minTimeout: 0}).then(() => undefined, error => error);
+	let rejection;
 
-	assert.ok(error instanceof Error, 'pRetry rejects with an error');
-	assert.notEqual(error.message, 'getPrototypeOf exploded');
+	try {
+		await pRetry(async () => {
+			throw hostile;
+		}, {retries: 1, minTimeout: 0});
+	} catch (error_) {
+		rejection = error_;
+	}
+
+	assert.ok(rejection instanceof Error, 'pRetry rejects with an error');
+	assert.notEqual(rejection.message, 'getPrototypeOf exploded');
 });
 
 test('the same value without a throwing trap is still a non-network TypeError', async () => {
