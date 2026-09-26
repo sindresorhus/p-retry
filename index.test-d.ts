@@ -64,6 +64,48 @@ expectType<Promise<string>>(pRetry(() => 'foo', {
 	},
 }));
 
+expectType<Promise<string>>(pRetry(() => 'foo', {
+	shouldConsumeRetry() {
+		return undefined;
+	},
+}));
+
+expectType<Promise<string>>(pRetry(() => 'foo', {
+	async shouldConsumeRetry() {
+		return undefined;
+	},
+}));
+
+expectType<Promise<string>>(pRetry(() => 'foo', {
+	shouldConsumeRetry(context) {
+		expectType<RetryContext>(context);
+	},
+}));
+
+expectType<Promise<string>>(pRetry(() => 'foo', {
+	async shouldConsumeRetry(context) {
+		expectType<RetryContext>(context);
+	},
+}));
+
+// Returning nothing from `shouldRetry` means "never retry", so a forgotten `return` is a type error.
+expectError(pRetry(() => 'foo', {
+	shouldRetry(context) {
+		console.log(context.error);
+	},
+}));
+
+expectError(pRetry(() => 'foo', {
+	async shouldRetry(context) {
+		console.log(context.error);
+	},
+}));
+
+expectError(pRetry(() => 'foo', {shouldRetry: () => 'yes'}));
+expectError(pRetry(() => 'foo', {shouldConsumeRetry: async () => 'yes'}));
+expectError(pRetry(() => 'foo', {shouldRetry: () => 42}));
+expectError(pRetry(() => 'foo', {shouldConsumeRetry: async () => 42}));
+
 expectError(pRetry(() => 'foo', {onFailedAttempt: 'nope'}));
 expectError(pRetry(() => 'foo', {forever: true}));
 expectError(pRetry());

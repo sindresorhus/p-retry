@@ -86,7 +86,7 @@ export type Options = {
 	readonly onFailedAttempt?: (context: RetryContext) => void | Promise<void>;
 
 	/**
-	Decide if a retry should occur based on the context. Returning true triggers a retry, false aborts with the error.
+	Decide if a retry should occur based on the context. Returning true triggers a retry, false aborts with the error. Returning nothing counts as `false`.
 
 	The function is called after `onFailedAttempt` and `shouldConsumeRetry`.
 
@@ -138,11 +138,11 @@ export type Options = {
 	In the example above, `RateLimitError`s will not decrement the available `retries`.
 
 	> [!WARNING]
-	> Failures that do not consume a retry also do not count towards `retries`, so returning `false` on every failure means `pRetry` never runs out of attempts. `maxRetryTime` is then the only bound, and it defaults to `Infinity`. Pair this option with `maxRetryTime`, or return `false` only for failures you expect to stop eventually.
+	> Failures that do not consume a retry also do not count towards `retries`, so returning `false` on every failure means `pRetry` never runs out of attempts. `maxRetryTime` is then the only bound, and it defaults to `Infinity`. Pair this option with `maxRetryTime`, or return `false` only for failures you expect to stop eventually. These retries also have no delay, so an operation that fails without waiting on a timer or I/O runs back to back without yielding to the event loop, and a `signal` aborted from a timer or an event cannot stop it.
 
 	If the `shouldConsumeRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
-	readonly shouldConsumeRetry?: (context: RetryContext) => boolean | Promise<boolean>;
+	readonly shouldConsumeRetry?: (context: RetryContext) => boolean | void | Promise<boolean | void>;
 
 	/**
 	The maximum amount of times to retry the operation. Must be a non-negative integer or `Infinity`.
@@ -154,7 +154,7 @@ export type Options = {
 	/**
 	The exponential factor to use.
 
-	A `factor` of `0` is treated as `1`, which keeps the delay constant instead of collapsing it to nothing.
+	A `factor` of `0` is treated as `1`, which keeps the delay constant. A `factor` below `1` shrinks the delay on every retry until it rounds to `0`, and from then on no timer is scheduled. See the warning on `minTimeout`.
 
 	@default 2
 	*/
@@ -166,7 +166,7 @@ export type Options = {
 	Set this to `0` to retry immediately with no delay.
 
 	> [!WARNING]
-	> A delay of `0` schedules no timer at all, so attempts run back to back without ever yielding to the event loop. Combined with `retries: Infinity` or with failures that do not consume a retry, that is a busy loop that keeps the CPU pinned and stops timers, I/O, and `signal` from ever running. Use a small non-zero value if the operation can fail indefinitely.
+	> A delay of `0` schedules no timer at all. If the operation also fails without waiting on a timer or I/O, attempts run back to back without ever yielding to the event loop. Combined with `retries: Infinity`, that is a busy loop that keeps the CPU pinned and stops timers, I/O, and `signal` from ever running. Use a small non-zero value if the operation can fail indefinitely.
 
 	@default 1000
 	*/
@@ -176,6 +176,8 @@ export type Options = {
 	The maximum number of milliseconds between two retries.
 
 	Delays are also capped at the largest value a timer can hold, 2147483647ms, about 24.9 days. A longer one is clamped to that rather than firing straight away.
+
+	A `maxTimeout` below `1` millisecond rounds down to `0`. Like `minTimeout: 0`, this schedules no timer, so attempts run back to back without yielding to timers or timer-driven `signal` aborts. See the warning on `minTimeout`.
 
 	@default Infinity
 	*/
@@ -203,6 +205,8 @@ export type Options = {
 	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
 
 	Once the signal is aborted, the abort reason is what the promise rejects with, whatever the operation threw and whatever the callbacks returned. A cancellation is the caller's decision and is not overwritten by a later failure.
+
+	The exception is a callback that throws or rejects: the boundary checks sit between the callbacks, so an error raised inside one is reported rather than replaced. An abort that lands before the callback is reached still wins.
 
 	```
 	import pRetry from 'p-retry';
