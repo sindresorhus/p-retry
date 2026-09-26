@@ -21,13 +21,7 @@ function validateRetries(retries) {
 	}
 }
 
-function validateNumberOption(name, value, {min = 0, allowInfinity = false} = {}) {
-	// No caller reaches this with `undefined`, since every numeric option is defaulted first. Kept so
-	// the helper stays safe to use on its own.
-	if (value === undefined) {
-		return;
-	}
-
+function validateNumberOption(name, value, {allowInfinity = false} = {}) {
 	if (typeof value !== 'number' || Number.isNaN(value)) {
 		throw new TypeError(`Expected \`${name}\` to be a number${allowInfinity ? ' or Infinity' : ''}.`);
 	}
@@ -36,8 +30,8 @@ function validateNumberOption(name, value, {min = 0, allowInfinity = false} = {}
 		throw new TypeError(`Expected \`${name}\` to be a finite number.`);
 	}
 
-	if (value < min) {
-		throw new TypeError(`Expected \`${name}\` to be \u{2265} ${min}.`);
+	if (value < 0) {
+		throw new TypeError(`Expected \`${name}\` to be \u{2265} 0.`);
 	}
 }
 
@@ -100,7 +94,8 @@ function calculateDelay(retriesConsumed, options) {
 		return 0;
 	}
 
-	const attempt = Math.max(1, retriesConsumed + 1);
+	// `retriesConsumed` starts at 0 and only ever counts up, so the first retry is already attempt 1.
+	const attempt = retriesConsumed + 1;
 	const random = options.randomize ? (Math.random() + 1) : 1;
 
 	const timeout = Math.round(random * options.minTimeout * (options.factor ** (attempt - 1)));
@@ -139,77 +134,45 @@ async function delayForRetry(delay, options) {
 	});
 }
 
-// Stringifying a thrown value can itself throw, for a symbol or an object with a broken `toString`.
-// That must never be allowed to replace the failure the caller is actually dealing with.
+// Stringifying a thrown value can itself throw, for an object with no usable `toString`. That must
+// never be allowed to replace the failure the caller is actually dealing with.
+//
+// A thrown value whose own accessors or proxy traps throw is not supported, here or anywhere else.
+// It comes from the caller's own code, so it is not something to defend against.
 function stringifyThrownValue(value) {
 	try {
 		return String(value);
-	} catch {}
-
-	try {
+	} catch {
 		return Object.prototype.toString.call(value);
-	} catch {}
-
-	// A proxy can throw on `Symbol.toStringTag` too, so the type is the last thing always safe.
-	return typeof value;
+	}
 }
 
 // `AbortError` wraps the error the caller actually wants, and the wrappers can be nested, so keep
 // unwrapping until the cause is reached. Otherwise an `AbortError` would escape `pRetry` and a
 // `catch` doing `error instanceof AbortError` would read a real failure as a cancellation.
 //
-// `originalError` is writable and a proxy can hand back a fresh wrapper on every read, so neither a
-// cycle check nor a plain walk terminates on a hostile value. Real nesting is never more than a
-// couple of levels, so stop at a depth nothing legitimate reaches.
-const maximumAbortErrorDepth = 100;
-
-// `instanceof` reads `getPrototypeOf`, which a proxy can make throw, so a hostile value must not be
-// able to turn a type check into the reported failure. Nothing reaches here untrusted except a thrown
-// value, so a failed check just means "not that type".
-function isInstanceOf(value, constructor) {
-	try {
-		return value instanceof constructor;
-	} catch {
-		return false;
-	}
-}
-
+// Two wrappers whose `originalError` points at each other are not supported, like the thrown values
+// above.
 function unwrapAbortError(error) {
 	let cause = error;
 
-	for (let depth = 0; depth < maximumAbortErrorDepth; depth++) {
-		// `originalError` is writable, so a getter can throw, and a proxy can throw from
-		// `getPrototypeOf`. Neither is a reason to report something other than the cause.
-		let wrapped;
-
-		try {
-			if (!isInstanceOf(cause, AbortError)) {
-				break;
-			}
-
-			({originalError: wrapped} = cause);
-		} catch {
-			break;
-		}
-
-		// Not an error to unwrap to, so this is the cause as far as it goes.
-		if (!isInstanceOf(wrapped, Error)) {
-			break;
-		}
-
-		cause = wrapped;
+	// A wrapper with no error to unwrap to is the cause as far as it goes.
+	while (cause instanceof AbortError && cause.originalError instanceof Error) {
+		cause = cause.originalError;
 	}
 
 	return cause;
 }
 
 async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTime, options}) {
-	// Every boundary between callbacks is a place the caller can cancel from, so check at each one.
+	// The signal is checked after every await, so a cancellation is never reported as an operation
+	// failure or a callback's decision, and no callback runs after it. The last check also guards the
+	// delay, whose abort listener never fires on a signal that is already aborted.
 	const abortIfNeeded = () => {
 		options.signal?.throwIfAborted();
 	};
 
-	const normalizedError = isInstanceOf(error, Error)
+	const normalizedError = error instanceof Error
 		? error
 		: new TypeError(`Non-error was thrown: "${stringifyThrownValue(error)}". You should only throw errors.`);
 
@@ -218,7 +181,7 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	// let an `AbortError` from the operation outrank a cancellation the caller asked for.
 	abortIfNeeded();
 
-	if (isInstanceOf(normalizedError, AbortError)) {
+	if (normalizedError instanceof AbortError) {
 		throw unwrapAbortError(normalizedError);
 	}
 
@@ -226,9 +189,8 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		? Math.max(0, options.retries - retriesConsumed)
 		: options.retries;
 
-	const maxRetryTime = options.maxRetryTime ?? Infinity;
 	// Out of time already, so the callbacks must be told that no retry follows.
-	const timeLeft = calculateRemainingTime(startTime, maxRetryTime);
+	const timeLeft = calculateRemainingTime(startTime, options.maxRetryTime);
 	const delayTime = timeLeft > 0 ? calculateDelay(retriesConsumed, options) : 0;
 
 	const consumeRetryContext = Object.freeze({
@@ -258,45 +220,39 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 
 	abortIfNeeded();
 
-	const remainingTime = calculateRemainingTime(startTime, maxRetryTime);
+	const remainingTime = calculateRemainingTime(startTime, options.maxRetryTime);
 
-	// No time or budget left, or a failure that retrying cannot help with.
-	if (remainingTime <= 0
+	// No time or budget left, or a failure that retrying cannot help with. A `TypeError` normally means
+	// the operation itself is broken rather than the thing it was trying to reach, so retrying it does
+	// not help. A network `TypeError` is the exception, and its message differs per runtime, so it has
+	// to be recognised rather than assumed.
+	if (
+		remainingTime <= 0
 		|| retriesLeft <= 0
-		|| (isInstanceOf(normalizedError, TypeError) && !isNetworkError(normalizedError))) {
+		|| (normalizedError instanceof TypeError && !isNetworkError(normalizedError))
+	) {
 		throw normalizedError;
 	}
 
-	if (!await options.shouldRetry(context)) {
-		// The caller's cancellation is final, so it outranks the operation error here too. Without
-		// this, aborting inside `shouldRetry` would change which error the caller gets depending on
-		// what the callback returned, where the other two callbacks are consistent.
-		abortIfNeeded();
+	const shouldRetry = await options.shouldRetry(context);
+
+	abortIfNeeded();
+
+	if (!shouldRetry) {
 		throw normalizedError;
 	}
 
-	const remainingTimeAfterShouldRetry = calculateRemainingTime(startTime, maxRetryTime);
+	const remainingTimeAfterShouldRetry = calculateRemainingTime(startTime, options.maxRetryTime);
 
 	if (remainingTimeAfterShouldRetry <= 0) {
-		// The caller's cancellation is final, so it outranks the operation error here too. Without
-		// this, a `shouldRetry` that returns true, aborts, and spends the rest of the budget would
-		// take this branch and report the operation failure instead.
-		abortIfNeeded();
 		throw normalizedError;
 	}
 
 	if (!consumeRetry) {
-		abortIfNeeded();
 		return false;
 	}
 
-	const finalDelay = Math.min(effectiveDelay, remainingTimeAfterShouldRetry);
-
-	abortIfNeeded();
-
-	await delayForRetry(finalDelay, options);
-
-	abortIfNeeded();
+	await delayForRetry(Math.min(effectiveDelay, remainingTimeAfterShouldRetry), options);
 
 	return true;
 }
@@ -329,10 +285,10 @@ export default async function pRetry(input, options = {}) {
 	validateOption('randomize', options.randomize, 'boolean');
 	validateOption('unref', options.unref, 'boolean');
 	validateSignal(options.signal);
-	validateNumberOption('factor', options.factor, {min: 0, allowInfinity: false});
-	validateNumberOption('minTimeout', options.minTimeout, {min: 0, allowInfinity: false});
-	validateNumberOption('maxTimeout', options.maxTimeout, {min: 0, allowInfinity: true});
-	validateNumberOption('maxRetryTime', options.maxRetryTime, {min: 0, allowInfinity: true});
+	validateNumberOption('factor', options.factor);
+	validateNumberOption('minTimeout', options.minTimeout);
+	validateNumberOption('maxTimeout', options.maxTimeout, {allowInfinity: true});
+	validateNumberOption('maxRetryTime', options.maxRetryTime, {allowInfinity: true});
 
 	// Treat non-positive factor as 1 to avoid zero backoff or negative behavior
 	if (!(options.factor > 0)) {

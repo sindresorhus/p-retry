@@ -161,64 +161,6 @@ test('aborting while the operation is in flight stops it without waiting out the
 	assert.deepEqual(calls, []);
 });
 
-test('an AbortError that throws while being unwrapped still rejects with a real error', async () => {
-	// `originalError` is writable, so a getter can throw, and a proxy can throw from
-	// `getPrototypeOf`. Neither should be reported in place of the cause.
-	const thrower = new AbortError('stop');
-	Object.defineProperty(thrower, 'originalError', {
-		configurable: true,
-		get() {
-			throw new Error('originalError exploded');
-		},
-	});
-
-	const hostile = new Proxy(new AbortError('stop'), {
-		getPrototypeOf() {
-			throw new Error('getPrototypeOf exploded');
-		},
-	});
-
-	let caught;
-
-	try {
-		await pRetry(async () => {
-			throw thrower;
-		}, {retries: 0});
-	} catch (error) {
-		caught = error;
-	}
-
-	// Nothing to unwrap to, so the wrapper itself is the answer.
-	assert.equal(caught, thrower);
-
-	// A proxy that throws from `getPrototypeOf` cannot be recognised as an error at all, so it goes
-	// down the non-error path rather than reporting its own trap.
-	caught = undefined;
-
-	try {
-		await pRetry(async () => {
-			throw hostile;
-		}, {retries: 0});
-	} catch (error) {
-		caught = error;
-	}
-
-	assert.equal(caught.message, 'Non-error was thrown: "AbortError: stop". You should only throw errors.');
-});
-
-test('a cycle in originalError does not hang', async () => {
-	const outer = new AbortError('outer');
-	const inner = new AbortError('inner');
-	outer.originalError = inner;
-	inner.originalError = outer;
-
-	// A synchronous spin here would block the event loop, so the test would time out. Unwrapping
-	// walks one link and then meets the cycle, so either wrapper is an acceptable result.
-	await assert.rejects(pRetry(async () => {
-		throw outer;
-	}, {retries: 5, minTimeout: 0}), error => error === outer || error === inner);
-});
-
 test('a signal reason is not unwrapped, and wins over an AbortError', async () => {
 	// The caller picks the reason for a cancellation, so it is final. Unwrapping it would replace the
 	// reason they chose with whatever is inside it.
@@ -244,29 +186,6 @@ test('a signal reason is not unwrapped, and wins over an AbortError', async () =
 		signal: second.signal,
 		minTimeout: 0,
 	}), rejectsWith(cancelled));
-});
-
-test('a chain of wrappers that never ends does not hang', async () => {
-	// A proxy can hand back a fresh wrapper on every read, so tracking the wrappers already seen
-	// never matches and the walk spins on a synchronous loop, blocking the event loop.
-	const lie = () => new Proxy(new AbortError('lying'), {
-		get(target, property, receiver) {
-			return property === 'originalError' ? lie() : Reflect.get(target, property, receiver);
-		},
-	});
-
-	let thrown;
-
-	try {
-		await pRetry(async () => {
-			throw lie();
-		}, {retries: 0});
-	} catch (error) {
-		thrown = error;
-	}
-
-	assert.ok(thrown instanceof Error);
-	assert.equal(thrown.message, 'lying');
 });
 
 test('aborts', {timeout: 60_000}, async () => {

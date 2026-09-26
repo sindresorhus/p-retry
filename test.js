@@ -86,24 +86,6 @@ test('a throwing toString does not replace the reported failure', async () => {
 	});
 });
 
-test('a value that cannot be converted at all still gets a useful error message', async () => {
-	// A proxy can throw from the `Symbol.toStringTag` read that the fallback does, too.
-	await assert.rejects(pRetry(() => {
-		throw new Proxy({}, {
-			get(target, property) {
-				if (property === Symbol.toStringTag) {
-					throw new Error('toStringTag exploded');
-				}
-
-				return Reflect.get(target, property);
-			},
-		});
-	}, {retries: 0}), {
-		name: 'TypeError',
-		message: 'Non-error was thrown: "object". You should only throw errors.',
-	});
-});
-
 test('no retry on TypeError', {timeout: 30_000}, async () => {
 	const typeErrorFixture = new TypeError('type-error-fixture');
 	let index = 0;

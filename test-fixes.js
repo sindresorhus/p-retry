@@ -42,59 +42,6 @@ test('a cancellation is final even when the budget runs out inside shouldRetry',
 	}
 });
 
-// `instanceof` reads `getPrototypeOf`, which a proxy can make throw. This one answers the first read
-// so the value is recognised as an error, then throws, so a type check further in used to turn into
-// the reported failure. The value is not a `TypeError` as far as the check can tell, so it is retried
-// rather than short-circuited, but never reported as the proxy's own trap.
-test('a value that throws from getPrototypeOf later is not reported as the failure', async () => {
-	let reads = 0;
-	const hostile = new Proxy(new TypeError('x is not a function'), {
-		getPrototypeOf() {
-			if (++reads > 1) {
-				throw new Error('getPrototypeOf exploded');
-			}
-
-			return TypeError.prototype;
-		},
-	});
-
-	let rejection;
-
-	try {
-		await pRetry(async () => {
-			throw hostile;
-		}, {retries: 1, minTimeout: 0});
-	} catch (error_) {
-		rejection = error_;
-	}
-
-	assert.ok(rejection instanceof Error, 'pRetry rejects with an error');
-	assert.notEqual(rejection.message, 'getPrototypeOf exploded');
-});
-
-test('the same value without a throwing trap is still a non-network TypeError', async () => {
-	// The control for the test above: an ordinary cross-realm TypeError must still stop the retries.
-	const typeError = new TypeError('x is not a function');
-	let attempts = 0;
-
-	let rejection;
-
-	try {
-		await pRetry(async () => {
-			attempts++;
-			throw typeError;
-		}, {retries: 5, minTimeout: 0});
-	} catch (error_) {
-		rejection = error_;
-	}
-
-	assert.equal(rejection, typeError);
-
-	assert.equal(attempts, 1);
-	// The name in the test is only true if the short circuit is what stopped it.
-	assert.equal(rejection.name, 'TypeError');
-});
-
 // A `shouldConsumeRetry` that returns nothing must stay bounded. An in-process timeout cannot catch a
 // regression here: the failure is a microtask loop that starves the event loop, so a timer-based
 // timeout never fires and the file wedges instead of failing. A subprocess is killed from outside,
