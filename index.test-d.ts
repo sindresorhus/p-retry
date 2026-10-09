@@ -1,47 +1,47 @@
-import {expectError, expectType} from 'tsd';
+import {expectTypeOf, expectError} from 'nz';
 import pRetry, {makeRetriable, AbortError, type RetryContext} from './index.js';
 
-expectType<Promise<number>>(pRetry(async count => {
-	expectType<number>(count);
+expectTypeOf(pRetry(async count => {
+	expectTypeOf(count).toBe<number>();
 	return 1;
-}));
-expectType<Promise<void>>(pRetry(() => {}, { // eslint-disable-line @typescript-eslint/no-empty-function
+})).toBe<Promise<number>>();
+expectTypeOf(pRetry(() => {}, { // eslint-disable-line @typescript-eslint/no-empty-function
 	onFailedAttempt(context) {
-		expectType<RetryContext>(context);
-		expectType<number>(context.attemptNumber);
-		expectType<number>(context.retriesLeft);
-		expectType<number>(context.retriesConsumed);
+		expectTypeOf(context).toBe<RetryContext>();
+		expectTypeOf(context.attemptNumber).toBe<number>();
+		expectTypeOf(context.retriesLeft).toBe<number>();
+		expectTypeOf(context.retriesConsumed).toBe<number>();
 	},
-}));
-expectType<Promise<string>>(pRetry(() => 'foo', {
+})).toBe<Promise<void>>();
+expectTypeOf(pRetry(() => 'foo', {
 	retries: 5,
-}));
+})).toBe<Promise<string>>();
 
-expectType<Promise<string>>(pRetry(async () => 'value', {
+expectTypeOf(pRetry(async () => 'value', {
 	async shouldConsumeRetry(context) {
-		expectType<RetryContext>(context);
-		expectType<Error>(context.error);
+		expectTypeOf(context).toBe<RetryContext>();
+		expectTypeOf(context.error).toBe<Error>();
 		return true;
 	},
 	minTimeout: 0,
-}));
+})).toBe<Promise<string>>();
 
 const abortError = new AbortError('foo');
 new AbortError(new Error('foo')); // eslint-disable-line no-new
 
-expectType<AbortError>(abortError);
+expectTypeOf(abortError).toBe<AbortError>();
 
 // No argument is legal at runtime, and the suite relies on it.
-expectType<AbortError>(new AbortError());
+expectTypeOf(new AbortError()).toBe<AbortError>();
 
 // AbortError
-expectType<'AbortError'>(abortError.name);
-expectType<Error>(abortError.originalError);
-expectType<string>(abortError.message);
-expectType<AbortError>(new AbortError('foo'));
+expectTypeOf(abortError.name).toBe<'AbortError'>();
+expectTypeOf(abortError.originalError).toBe<Error>();
+expectTypeOf(abortError.message).toBe<string>();
+expectTypeOf(new AbortError('foo')).toBe<AbortError>();
 
 // Options that the runtime accepts.
-expectType<Promise<string>>(pRetry(() => 'foo', {
+expectTypeOf(pRetry(() => 'foo', {
 	retries: Infinity,
 	factor: 1.5,
 	minTimeout: 0,
@@ -50,43 +50,43 @@ expectType<Promise<string>>(pRetry(() => 'foo', {
 	maxRetryTime: 5000,
 	unref: true,
 	signal: new AbortController().signal,
-}));
+})).toBe<Promise<string>>();
 
-expectType<Promise<string>>(pRetry(() => 'foo', {
+expectTypeOf(pRetry(() => 'foo', {
 	shouldRetry: () => false,
-}));
+})).toBe<Promise<string>>();
 
-expectType<Promise<string>>(pRetry(() => 'foo', {
+expectTypeOf(pRetry(() => 'foo', {
 	async shouldRetry(context) {
-		expectType<RetryContext>(context);
-		expectType<number>(context.retryDelay);
+		expectTypeOf(context).toBe<RetryContext>();
+		expectTypeOf(context.retryDelay).toBe<number>();
 		return true;
 	},
-}));
+})).toBe<Promise<string>>();
 
-expectType<Promise<string>>(pRetry(() => 'foo', {
+expectTypeOf(pRetry(() => 'foo', {
 	shouldConsumeRetry() {
 		return undefined;
 	},
-}));
+})).toBe<Promise<string>>();
 
-expectType<Promise<string>>(pRetry(() => 'foo', {
+expectTypeOf(pRetry(() => 'foo', {
 	async shouldConsumeRetry() {
 		return undefined;
 	},
-}));
+})).toBe<Promise<string>>();
 
-expectType<Promise<string>>(pRetry(() => 'foo', {
+expectTypeOf(pRetry(() => 'foo', {
 	shouldConsumeRetry(context) {
-		expectType<RetryContext>(context);
+		expectTypeOf(context).toBe<RetryContext>();
 	},
-}));
+})).toBe<Promise<string>>();
 
-expectType<Promise<string>>(pRetry(() => 'foo', {
+expectTypeOf(pRetry(() => 'foo', {
 	async shouldConsumeRetry(context) {
-		expectType<RetryContext>(context);
+		expectTypeOf(context).toBe<RetryContext>();
 	},
-}));
+})).toBe<Promise<string>>();
 
 // Returning nothing from `shouldRetry` means "never retry", so a forgotten `return` is a type error.
 expectError(pRetry(() => 'foo', {
@@ -112,5 +112,5 @@ expectError(pRetry());
 
 // `makeRetriable`
 const retried = makeRetriable(async (a: string, b: number) => `${a}${b}`, {retries: 1});
-expectType<Promise<string>>(retried('foo', 1));
+expectTypeOf(retried('foo', 1)).toBe<Promise<string>>();
 expectError(retried('foo', 'bar'));

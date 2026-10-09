@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execa} from 'execa';
@@ -7,29 +6,24 @@ import {
 	fixture,
 	fixtureError,
 	rejectsWith,
+	removeTemporaryScript,
 	temporaryScript,
 	captureDelays,
+	collapseDelays,
 	withFakeTime,
 } from './helpers.js';
 import pRetry, {AbortError} from './index.js';
 
 test('handles async shouldRetry with maxRetryTime', async t => {
+	const delays = collapseDelays(t);
 	const originalPerformanceNow = performance.now;
-	const originalSetTimeout = setTimeout;
-	const delays = [];
 	let now = 0;
 
-	// Both clocks are controlled. With real ones the callback's wait has to fit inside the budget for
-	// a delay to be scheduled at all, which is a real time dependency with nothing behind it.
+	// Both clocks are controlled. With real ones the callback's wait has to fit inside the budget for a delay to be scheduled at all, which is a real time dependency with nothing behind it. The clock is driven by the test rather than by the wait, so that the callback is what spends the budget and the delays can be read off exactly.
 	performance.now = () => now;
-	globalThis.setTimeout = (function_, ms) => {
-		delays.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
 
 	t.after(() => {
 		performance.now = originalPerformanceNow;
-		globalThis.setTimeout = originalSetTimeout;
 	});
 
 	let attempts = 0;
@@ -49,9 +43,7 @@ test('handles async shouldRetry with maxRetryTime', async t => {
 		},
 	), {message: 'test'});
 
-	// Each attempt costs 100ms of a 1000ms budget inside the callback, so the tenth attempt finds
-	// nothing left. Were the callback time not counted, the backoff would schedule 1000, 2000, 4000
-	// and the run would use all 11 attempts.
+	// Each attempt costs 100ms of a 1000ms budget inside the callback, so the tenth attempt finds nothing left. Were the callback time not counted, the clock would never move, so every delay would be the full 1000ms and the run would use all 11 attempts.
 	assert.equal(attempts, 10);
 	assert.deepEqual(delays, [900, 800, 700, 600, 500, 400, 300, 200, 100]);
 });
@@ -77,94 +69,44 @@ test('onFailedAttempt can return a promise to add a delay', {timeout: 30_000}, a
 		},
 	);
 
-	// The callback's own wait comes first, so the retry was only scheduled once it had resolved.
+	// The callback's own wait is recorded, and the backoff after it is unchanged. The fake clock records a wait when it is scheduled, so this cannot see whether the callback is awaited. The thenable and callback rejection tests cover that.
 	assert.deepEqual(delays, [waitFor, 1000]);
 });
 
-test('factor affects exponential backoff', async t => {
-	// Stronger test: capture actual scheduled delays via mocked setTimeout
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0); // Execute immediately to avoid slowing tests
-	};
+test('the backoff is the previous delay times the factor', async t => {
+	// A factor of 0 would give 100 then 0 forever, so it is clamped to 1 and behaves like a factor of 1.
+	const table = new Map([
+		[0, [100, 100, 100]],
+		[0.1, [100, 10]],
+		[0.5, [100, 50, 25]],
+		[1, [100, 100, 100]],
+		[2, [100, 200, 400]],
+		[3, [100, 300, 900]],
+	]);
 
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
+	// Installed once. The rows share the array, so each one reads from where the last one stopped.
+	const delays = collapseDelays(t);
+	let readFrom = 0;
 
-	await assert.rejects(pRetry(
-		async () => {
+	for (const [factor, expected] of table) {
+		let attempts = 0;
+
+		await assert.rejects(pRetry(async () => {
+			attempts++;
 			throw new Error('test');
-		},
-		{
-			retries: 3,
-			factor: 2,
+		}, {
+			retries: expected.length,
+			factor,
 			minTimeout: 100,
 			maxTimeout: Infinity,
 			randomize: false,
-		},
-	), {message: 'test'});
+		}), {message: 'test'});
 
-	assert.deepEqual(captured, [100, 200, 400]);
-});
-
-test('timeouts are incremental with factor', async t => {
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
-
-	await assert.rejects(pRetry(
-		async () => {
-			throw new Error('test');
-		},
-		{
-			retries: 3,
-			factor: 0.5,
-			minTimeout: 100,
-			maxTimeout: Infinity,
-			randomize: false,
-		},
-	), {message: 'test'});
-
-	// With factor 0.5 and minTimeout 100, expected delays: 100, 50, 25 (before rounding)
-	assert.deepEqual(captured, [100, 50, 25]);
-});
-
-test('setTimeout is never called with 0 minTimeout', async t => {
-	let isCalled = false;
-	const originalSetTimeout = setTimeout;
-	globalThis.setTimeout = function_ => {
-		isCalled = true;
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
-
-	await assert.rejects(pRetry(
-		async () => {
-			throw new Error('test');
-		},
-		{
-			retries: 3,
-			factor: 0.5,
-			minTimeout: 0,
-			maxTimeout: Infinity,
-			randomize: false,
-		},
-	), {message: 'test'});
-
-	assert.equal(isCalled, false);
+		// `retries` is the number of retries, and the last attempt has nothing left to wait for.
+		assert.deepEqual(delays.slice(readFrom), expected, `factor ${factor}`);
+		readFrom = delays.length;
+		assert.equal(attempts, expected.length + 1, `factor ${factor}`);
+	}
 });
 
 test('maxRetryTime uses monotonic clock', async t => {
@@ -198,51 +140,12 @@ test('maxRetryTime uses monotonic clock', async t => {
 		},
 	), {message: 'fail'});
 
-	// The wall clock jumps a second backwards on the second attempt. A monotonic clock ignores that
-	// and gives up once the simulated 120ms is past the 100ms budget, so the run stops at two.
+	// The wall clock jumps a second backwards on the second attempt. A monotonic clock ignores that and gives up once the simulated 120ms is past the 100ms budget, so the run stops at two.
 	assert.equal(attempts, 2);
 });
 
-test('minTimeout is respected even with small factor', async t => {
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
-
-	await assert.rejects(pRetry(
-		async () => {
-			throw new Error('test');
-		},
-		{
-			retries: 2,
-			factor: 0.1,
-			minTimeout: 100,
-			maxTimeout: Infinity,
-			randomize: false,
-		},
-	), {message: 'test'});
-
-	// First delay is at least minTimeout. Second is minTimeout * 0.1 = 10
-	assert.deepEqual(captured, [100, 10]);
-});
-
 test('maxTimeout caps retry delays', async t => {
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
+	const delays = collapseDelays(t);
 
 	await assert.rejects(pRetry(
 		async () => {
@@ -257,47 +160,7 @@ test('maxTimeout caps retry delays', async t => {
 		},
 	), {message: 'test'});
 
-	assert.deepEqual(captured, [100, 150, 150]);
-});
-
-test('skipped attempts do not impact backoff', async t => {
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-	globalThis.setTimeout = (function_, ms, ...arguments_) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0, ...arguments_);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
-
-	let attempts = 0;
-
-	await assert.rejects(pRetry(
-		async () => {
-			attempts++;
-
-			if (attempts === 1) {
-				throw new Error('skip');
-			}
-
-			throw new Error('fail');
-		},
-		{
-			retries: 3,
-			factor: 2,
-			minTimeout: 100,
-			maxTimeout: Infinity,
-			randomize: false,
-			shouldConsumeRetry: ({error}) => error.message !== 'skip',
-		},
-	), {name: 'Error'});
-
-	// Skip should not shift the backoff sequence; it simply retries without consuming budget.
-	assert.deepEqual(captured, [100, 200, 400]);
-	// One skipped attempt plus three counted retries, plus the final failure.
-	assert.equal(attempts, 5);
+	assert.deepEqual(delays, [100, 150, 150]);
 });
 
 test('shouldConsumeRetry time counts toward maxRetryTime', {timeout: 30_000}, async t => {
@@ -326,17 +189,7 @@ test('shouldConsumeRetry time counts toward maxRetryTime', {timeout: 30_000}, as
 });
 
 test('delays are clamped to the setTimeout maximum', async t => {
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
+	const delays = collapseDelays(t);
 
 	// A delay this large does not fit in a 32-bit integer, so `setTimeout` would fire it right away.
 	await assert.rejects(pRetry(async () => {
@@ -347,23 +200,13 @@ test('delays are clamped to the setTimeout maximum', async t => {
 		maxTimeout: Infinity,
 	}), {message: 'fail'});
 
-	assert.deepEqual(captured, [(2 ** 31) - 1]);
+	assert.deepEqual(delays, [(2 ** 31) - 1]);
 });
 
 test('delays stay 0 when minTimeout is 0 and the factor overflows', async t => {
 	// The factor grows to `Infinity` after enough attempts, and `0 * Infinity` is `NaN`.
+	const scheduledDelays = collapseDelays(t);
 	const retryDelays = [];
-	const scheduledDelays = [];
-	const originalSetTimeout = setTimeout;
-
-	globalThis.setTimeout = (function_, ms) => {
-		scheduledDelays.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
 
 	await assert.rejects(pRetry(async () => {
 		throw new Error('test');
@@ -377,57 +220,21 @@ test('delays stay 0 when minTimeout is 0 and the factor overflows', async t => {
 	}), {message: 'test'});
 
 	assert.equal(retryDelays.length, 1031);
-	assert.ok(retryDelays.every(value => !Number.isNaN(value)));
-	assert.ok(scheduledDelays.every(value => !Number.isNaN(value)));
 
 	// The name claims the delays stay at 0, so check that. A zero delay schedules no timer at all.
 	assert.ok(retryDelays.every(value => value === 0), 'every delay is 0');
 	assert.deepEqual(scheduledDelays, [], 'no timer was scheduled');
 });
 
-test('maxTimeout lower than minTimeout caps delay', async t => {
-	// Assert the scheduled delay instead of wall clock time, which is unreliable under load.
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
-
-	await assert.rejects(pRetry(async () => {
-		throw new Error('fail');
-	}, {
-		retries: 1,
-		minTimeout: 200,
-		maxTimeout: 50,
-		factor: 1,
-	}), {message: 'fail'});
-
-	// Capped by `maxTimeout`, so the single delay is 50ms and not `minTimeout` (200ms).
-	assert.deepEqual(captured, [50]);
-});
-
 test('randomize affects retry delays', async t => {
-	const captured = [];
-	const originalSetTimeout = setTimeout;
+	const delays = collapseDelays(t);
 	const originalRandom = Math.random;
 	let calls = 0;
 	const sequence = [0, 1, 0.5]; // → factors 1x, 2x, 1.5x
 
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
 	Math.random = () => sequence[calls++] ?? 0;
 
 	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
 		Math.random = originalRandom;
 	});
 
@@ -443,34 +250,34 @@ test('randomize affects retry delays', async t => {
 		},
 	), {message: 'test'});
 
-	assert.deepEqual(captured, [100, 200, 150]);
+	assert.deepEqual(delays, [100, 200, 150]);
 });
 
-test('maxRetryTime limits total retry duration', {timeout: 30_000}, async t => {
+test('the time the operation takes counts toward maxRetryTime', {timeout: 30_000}, async t => {
 	const {delays} = await withFakeTime(t);
-	const maxRetryTime = 1000;
+	let attempts = 0;
 
 	await assert.rejects(pRetry(
 		async () => {
+			attempts++;
 			await delay(400);
 			throw new Error('test');
 		},
 		{
 			retries: 10,
 			minTimeout: 100,
-			maxRetryTime,
+			maxRetryTime: 1000,
 		},
 	), {message: 'test'});
 
-	// Every wait is trimmed to what is left of the budget, so none of them can run past it.
-	for (const wait of delays) {
-		assert.ok(wait > 0, `${wait} is a real wait`);
-		assert.ok(wait <= maxRetryTime, `${wait} is within the retry budget`);
-	}
+	// Each attempt costs 400 of the 1000ms budget, so the third one runs it out. Were the operation's own time not counted, only the delays would spend the budget, and the run would use 5 attempts. The second delay is the exact sequence as well: the backoff asked for 200ms, but only 100 was left, so it was trimmed.
+	assert.equal(attempts, 3);
+	assert.deepEqual(delays, [400, 100, 400, 100, 400]);
 });
 
 test('onFailedAttempt time counts toward maxRetryTime', {timeout: 30_000}, async t => {
 	let attempts = 0;
+	let retryDecisions = 0;
 	const {delays} = await withFakeTime(t);
 	const maxRetryTime = 200;
 
@@ -485,10 +292,16 @@ test('onFailedAttempt time counts toward maxRetryTime', {timeout: 30_000}, async
 			async onFailedAttempt() {
 				await delay(300);
 			},
+			shouldRetry() {
+				retryDecisions++;
+				return true;
+			},
 		},
 	), {message: 'fail'});
 
 	assert.equal(attempts, 1);
+	// The budget ran out inside `onFailedAttempt`, so `shouldRetry` is not asked.
+	assert.equal(retryDecisions, 0);
 	// The only wait is the callback's own 300ms, so p-retry scheduled no retry delay at all.
 	assert.deepEqual(delays, [300]);
 });
@@ -514,44 +327,24 @@ test('signal already aborted when entering delay phase cancels immediately', {ti
 test('signal abort during delay cancels promptly', {timeout: 20_000}, async t => {
 	const controller = new AbortController();
 
-	// Abort shortly after the first failure schedules its delay. Set up before the mock, so only
-	// p-retry's own waits are recorded.
+	// Abort shortly after the first failure schedules its delay. Set up before the mock, so only p-retry's own waits are recorded.
 	setTimeout(() => controller.abort(fixtureError), 50);
 
 	const delays = captureDelays(t);
 
+	// The delay is a minute, so a missed abort fails on the test timeout rather than passing late. `unref` keeps a regression from also holding the process open for that minute.
 	await assert.rejects(pRetry(async () => {
 		throw new Error('retry');
 	}, {
 		signal: controller.signal,
 		retries: 5,
-		minTimeout: 500,
+		minTimeout: 60_000,
 		factor: 2,
+		unref: true,
 	}), rejectsWith(fixtureError));
 
-	// The 500ms delay was cleared when the abort landed, so the second retry never happened.
-	assert.deepEqual(delays, [500]);
-});
-
-test('factor <= 0 is treated as 1 (stable delays)', {timeout: 30_000}, async t => {
-	const delays = captureDelays(t);
-	let calls = 0;
-
-	await assert.rejects(pRetry(async () => {
-		calls++;
-		throw new Error('retry');
-	}, {
-		retries: 3,
-		minTimeout: 100,
-		factor: 0,
-		// Make delays deterministic
-		randomize: false,
-	}), {message: 'retry'});
-
-	// A factor of 0 would otherwise give 100 on the first retry and 0 on every one after it.
-	// The final attempt fails with nothing left to retry, so it never schedules a delay.
-	assert.deepEqual(delays, [100, 100, 100]);
-	assert.equal(calls, 4);
+	// The abort ended the one delay that was scheduled, so no second retry was scheduled. Whether the timer was also cleared is only visible from outside the process, see the subprocess test below.
+	assert.deepEqual(delays, [60_000]);
 });
 
 test('unref option prevents timeout from keeping process alive', {timeout: 30_000}, async t => {
@@ -613,6 +406,8 @@ async function foo2() {
 		},
 		{
 			retries: 1,
+			// Short, but still a real timer, so the retry goes through the event loop.
+			minTimeout: 10,
 		}
 	);
 }
@@ -639,8 +434,6 @@ main();
 
 		assert.match(stack, /Error: foo2 failed/v);
 
-		// The three assertions below cover the same ground, and report the operand that failed, so
-		// this only printed noise.
 		assert.match(stack, /foo2/v);
 		assert.match(stack, /foo1/v);
 		assert.match(stack, /main/v);
@@ -655,19 +448,13 @@ main();
 		assert.ok(foo1Index > foo2Index, 'foo1 should appear after foo2');
 		assert.ok(mainIndex > foo1Index, 'main should appear after foo1');
 	} finally {
-		await fs.unlink(temporaryFile);
+		await removeTemporaryScript(temporaryFile);
 	}
 });
 
 test('retryDelay is provided in onFailedAttempt context', async t => {
+	collapseDelays(t);
 	const retryDelays = [];
-	const originalSetTimeout = setTimeout;
-
-	globalThis.setTimeout = (function_, _ms) => originalSetTimeout(function_, 0);
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
 
 	await assert.rejects(pRetry(
 		async () => {
@@ -689,22 +476,12 @@ test('retryDelay is provided in onFailedAttempt context', async t => {
 });
 
 test('Only consumed retries advance backoff', async t => {
+	const timeouts = collapseDelays(t);
 	let attempts = 0;
-	const timeouts = [];
 	const maxAttempts = 4;
 	const minTimeout = 50;
 	const factor = 2;
 	const contexts = [];
-	const originalSetTimeout = setTimeout;
-
-	globalThis.setTimeout = (function_, ms) => {
-		timeouts.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
 
 	await assert.rejects(pRetry(
 		async () => {
@@ -731,35 +508,28 @@ test('Only consumed retries advance backoff', async t => {
 			factor,
 			minTimeout,
 		},
-	), {name: 'Error'});
+	), {message: 'stop'});
 
+	// The skipped failure did not count toward `retries: 2`, so a fourth attempt still ran.
+	assert.equal(attempts, maxAttempts);
 	assert.deepEqual(contexts.map(context => context.retriesConsumed), [0, 0, 1]);
 	assert.deepEqual(contexts.map(context => context.retriesLeft), [2, 2, 1]);
 	assert.deepEqual(timeouts, [minTimeout, minTimeout * factor]);
 });
 
 test('the delay is truncated to the time left', async t => {
+	const delays = collapseDelays(t);
 	const originalPerformanceNow = performance.now;
-	const originalSetTimeout = setTimeout;
-	const captured = [];
 	let now = 0;
 
-	// Both clocks are controlled. With real ones, the first attempt has to complete inside the 100ms
-	// budget for any delay to be scheduled at all, which leaves roughly 10ms of headroom before a
-	// slow worker turns this into a zero-length run that asserts nothing.
+	// Both clocks are controlled. With real ones, the first attempt has to complete inside the 100ms budget for any delay to be scheduled at all, which leaves roughly 10ms of headroom before a slow worker turns this into a zero-length run that asserts nothing. The clock is driven by the test, so each attempt costs a fixed amount and the trim can be read off exactly.
 	performance.now = () => now;
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
 
 	t.after(() => {
 		performance.now = originalPerformanceNow;
-		globalThis.setTimeout = originalSetTimeout;
 	});
 
-	// Each delay wants more than the whole budget, so each is trimmed to what is left, which shrinks
-	// by the cost of the attempt in between.
+	// Each delay wants more than the whole budget, so each is trimmed to what is left, which shrinks by the cost of the attempt in between.
 	await assert.rejects(pRetry(async () => {
 		now += 10;
 		throw new Error('fail');
@@ -769,10 +539,11 @@ test('the delay is truncated to the time left', async t => {
 		maxRetryTime: 100,
 	}), {message: 'fail'});
 
-	assert.deepEqual(captured, [90, 80, 70]);
+	assert.deepEqual(delays, [90, 80, 70]);
 });
 
-test('randomized delays stay within minTimeout and maxTimeout', {timeout: 30_000}, async t => {
+test('randomized delays stay within minTimeout and maxTimeout', async t => {
+	collapseDelays(t);
 	const originalRandom = Math.random;
 	const retryDelays = [];
 
@@ -800,99 +571,48 @@ test('randomized delays stay within minTimeout and maxTimeout', {timeout: 30_000
 	assert.deepEqual(retryDelays, [200, 300, 300, 300, 300, 0]);
 });
 
-test('a fractional maxTimeout still gives a whole number of milliseconds', {timeout: 30_000}, async () => {
-	// The backoff is rounded but the cap was not, so a fractional `maxTimeout` leaked through as a
-	// fractional delay. The cap must still be honoured, so it rounds down.
-	const originalSetTimeout = setTimeout;
+test('maxTimeout caps the delay, and rounds a fractional cap down', {timeout: 30_000}, async t => {
+	// A fractional `maxTimeout` must not give a fractional delay. The cap must still be honoured, so it rounds down.
+	//
+	// `minTimeout` of 100 is above every cap here, so every retry is capped. Each row names its own retry count, because a row with no retries never computes a delay at all and would assert nothing: a cap of 0 is the one row that has to retry to show that it scheduled no timer.
+	const table = new Map([
+		[10.5, {retries: 3, expected: [10, 10, 10]}],
+		[7.5, {retries: 3, expected: [7, 7, 7]}],
+		[13, {retries: 3, expected: [13, 13, 13]}],
+		[50, {retries: 1, expected: [50]}],
+		[0.5, {retries: 2, expected: []}],
+		[0, {retries: 2, expected: []}],
+	]);
 
-	try {
-		for (const [maxTimeout, expected] of [[10.5, [10, 10, 10]], [7.5, [7, 7, 7]], [13, [13, 13, 13]], [0, []]]) {
-			const delays = [];
-			globalThis.setTimeout = (function_, ms) => {
-				delays.push(ms);
-				return originalSetTimeout(function_, 0);
-			};
+	// Installed once. The rows share the array, so each one reads from where the last one stopped.
+	const delays = collapseDelays(t);
+	let readFrom = 0;
 
-			await pRetry(async () => {
-				throw new Error('fail');
-			}, {
-				retries: 3,
-				minTimeout: 100,
-				factor: 1.5,
-				maxTimeout,
-				randomize: false,
-			}).catch(() => {});
+	for (const [maxTimeout, {retries, expected}] of table) {
+		let attempts = 0;
 
-			globalThis.setTimeout = originalSetTimeout;
+		await assert.rejects(pRetry(async () => {
+			attempts++;
+			throw new Error('fail');
+		}, {
+			retries,
+			minTimeout: 100,
+			factor: 1.5,
+			maxTimeout,
+			randomize: false,
+		}), {message: 'fail'}, `maxTimeout ${maxTimeout}`);
 
-			// `minTimeout` of 100 is above every cap here, so all three retries are capped. The fourth
-			// attempt has nothing left to retry and schedules nothing, and a cap of 0 skips the timer
-			// entirely rather than scheduling a zero-length wait.
-			assert.deepEqual(delays, expected, `maxTimeout ${maxTimeout}`);
-		}
-	} finally {
-		globalThis.setTimeout = originalSetTimeout;
+		// Every row must really retry, or an empty `expected` would pass without a single delay computed.
+		assert.equal(attempts, retries + 1, `maxTimeout ${maxTimeout}`);
+		assert.deepEqual(delays.slice(readFrom), expected, `maxTimeout ${maxTimeout}`);
+		readFrom = delays.length;
 	}
 });
 
-test('factor: 1 keeps the delay constant', {timeout: 30_000}, async t => {
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
-
-	await assert.rejects(pRetry(
-		async () => {
-			throw new Error('test');
-		},
-		{
-			retries: 3,
-			factor: 1,
-			minTimeout: 100,
-			randomize: false,
-		},
-	), {message: 'test'});
-
-	assert.deepEqual(captured, [100, 100, 100]);
-});
-
-test('maxTimeout: 0 retries without waiting', async t => {
-	const captured = [];
-	const originalSetTimeout = setTimeout;
-
-	globalThis.setTimeout = (function_, ms) => {
-		captured.push(ms);
-		return originalSetTimeout(function_, 0);
-	};
-
-	t.after(() => {
-		globalThis.setTimeout = originalSetTimeout;
-	});
-
-	await assert.rejects(pRetry(
-		async () => {
-			throw new Error('test');
-		},
-		{
-			retries: 2,
-			minTimeout: 100,
-			maxTimeout: 0,
-		},
-	), {message: 'test'});
-
-	assert.deepEqual(captured, []);
-});
-
 test('unref lets the process exit while a retry is pending', {timeout: 15_000}, async () => {
-	// A real process, because the point is whether a pending timer keeps it alive.
+	// A real process, because the point is whether a pending timer keeps it alive. The marker is printed before the await, so a script that dies on its first line is told apart from one that ran, reached `pRetry`, and then let the process go.
 	const temporaryFile = await temporaryScript('p-retry-unref-test.mjs', `
+console.log('started');
 try {
 	await pRetry(async () => {
 		throw new Error('fail');
@@ -901,18 +621,17 @@ try {
 `);
 
 	try {
-		// The pending delay is a minute, so this can only finish if \`unref\` did its job. The subprocess
-		// timeout sits below this test's own, so a regression fails on the assertion rather than as a hang.
-		const {timedOut} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		// The pending delay is a minute, so this can only finish if `unref` did its job. The subprocess timeout sits below this test's own, so a regression fails on the assertion rather than as a hang.
+		const {timedOut, stdout} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		assert.match(stdout, /started/v, 'the script reached p-retry');
 		assert.ok(!timedOut, 'the process should exit while a retry is pending');
 	} finally {
-		await fs.unlink(temporaryFile);
+		await removeTemporaryScript(temporaryFile);
 	}
 });
 
 test('aborting during a delay does not leave the timer running', {timeout: 15_000}, async () => {
-	// A real process, because a timer that was never cleared is only visible as the process refusing
-	// to exit. Nothing else in the suite can tell a cleared delay from one that still has 60s to run.
+	// A real process, because a timer that was never cleared is only visible as the process refusing to exit. Nothing else in the suite can tell a cleared delay from one that still has 60s to run.
 	const temporaryFile = await temporaryScript('p-retry-abort-timer-test.mjs', `
 const controller = new AbortController();
 setTimeout(() => {
@@ -924,13 +643,18 @@ try {
 		throw new Error('fail');
 	}, {signal: controller.signal, retries: 5, minTimeout: 60_000});
 } catch {}
+
+console.log('settled');
 `);
 
 	try {
-		const {timedOut} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		const {timedOut, exitCode, stdout} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		assert.equal(exitCode, 0, 'the script ran to completion');
+		// Printed after the retry settles, so it is only reached if the abort landed and was waited out.
+		assert.match(stdout, /settled/v, 'the abort settled the pending retry');
 		assert.ok(!timedOut, 'the abort should clear the pending delay');
 	} finally {
-		await fs.unlink(temporaryFile);
+		await removeTemporaryScript(temporaryFile);
 	}
 });
 

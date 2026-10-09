@@ -2,7 +2,12 @@ import {getEventListeners} from 'node:events';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import delay from 'delay';
-import {fixture, fixtureError, rejectsWith} from './helpers.js';
+import {
+	fixture,
+	fixtureError,
+	rejectsWith,
+	withFakeTime,
+} from './helpers.js';
 import pRetry, {AbortError} from './index.js';
 
 test('AbortError - string', () => {
@@ -56,52 +61,49 @@ test('AbortSignal short-circuits callbacks', async () => {
 	assert.equal(attempts, 1);
 });
 
-test('aborting inside shouldConsumeRetry skips the later callbacks', async () => {
-	const controller = new AbortController();
-	const calls = [];
+test('aborting inside a callback stops the ones after it', async () => {
+	// One matrix for the three callbacks. Each row aborts inside the named callback and names the callbacks that had already run, so both the rejection and the stopping point are checked.
+	const matrix = new Map([
+		['shouldConsumeRetry', ['shouldConsumeRetry']],
+		['onFailedAttempt', ['shouldConsumeRetry', 'onFailedAttempt']],
+		['shouldRetry', ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry']],
+	]);
 
-	await assert.rejects(pRetry(async () => {
-		throw new Error('fail');
-	}, {
-		signal: controller.signal,
-		minTimeout: 0,
-		shouldConsumeRetry() {
-			calls.push('shouldConsumeRetry');
-			controller.abort(fixtureError);
-			return true;
-		},
-		onFailedAttempt() {
-			calls.push('onFailedAttempt');
-		},
-		shouldRetry() {
-			calls.push('shouldRetry');
-			return true;
-		},
-	}), rejectsWith(fixtureError));
+	for (const [abortIn, expected] of matrix) {
+		const controller = new AbortController();
+		const calls = [];
 
-	assert.deepEqual(calls, ['shouldConsumeRetry']);
-});
+		await assert.rejects(pRetry(async () => {
+			throw new Error('fail');
+		}, {
+			signal: controller.signal,
+			minTimeout: 0,
+			async shouldConsumeRetry() {
+				calls.push('shouldConsumeRetry');
+				if (abortIn === 'shouldConsumeRetry') {
+					controller.abort(fixtureError);
+				}
 
-test('aborting inside onFailedAttempt skips shouldRetry', async () => {
-	const controller = new AbortController();
-	const calls = [];
+				return true;
+			},
+			async onFailedAttempt() {
+				calls.push('onFailedAttempt');
+				if (abortIn === 'onFailedAttempt') {
+					controller.abort(fixtureError);
+				}
+			},
+			async shouldRetry() {
+				calls.push('shouldRetry');
+				if (abortIn === 'shouldRetry') {
+					controller.abort(fixtureError);
+				}
 
-	await assert.rejects(pRetry(async () => {
-		throw new Error('fail');
-	}, {
-		signal: controller.signal,
-		minTimeout: 0,
-		onFailedAttempt() {
-			calls.push('onFailedAttempt');
-			controller.abort(fixtureError);
-		},
-		shouldRetry() {
-			calls.push('shouldRetry');
-			return true;
-		},
-	}), rejectsWith(fixtureError));
+				return true;
+			},
+		}), rejectsWith(fixtureError), abortIn);
 
-	assert.deepEqual(calls, ['onFailedAttempt']);
+		assert.deepEqual(calls, expected, abortIn);
+	}
 });
 
 test('a nested AbortError is unwrapped all the way down', async () => {
@@ -112,8 +114,15 @@ test('a nested AbortError is unwrapped all the way down', async () => {
 });
 
 test('throws on an invalid signal', async () => {
-	// Otherwise the failure surfaces as "options.signal?.throwIfAborted is not a function".
-	for (const signal of [true, 'abort', {}, {throwIfAborted() {}, addEventListener() {}}]) {
+	// Otherwise the failure surfaces as "options.signal?.throwIfAborted is not a function". One row per method the signal is duck typed on, so dropping any single check is caught. Each row has the other two and is missing only the one it is there to pin.
+	for (const signal of [
+		true,
+		'string',
+		{},
+		{addEventListener() {}, removeEventListener() {}},
+		{throwIfAborted() {}, removeEventListener() {}},
+		{throwIfAborted() {}, addEventListener() {}},
+	]) {
 		await assert.rejects(pRetry(async () => {}, {signal}), {
 			name: 'TypeError',
 			message: 'Expected `signal` to be an AbortSignal.',
@@ -162,8 +171,7 @@ test('aborting while the operation is in flight stops it without waiting out the
 });
 
 test('a signal reason is not unwrapped, and wins over an AbortError', async () => {
-	// The caller picks the reason for a cancellation, so it is final. Unwrapping it would replace the
-	// reason they chose with whatever is inside it.
+	// The caller picks the reason for a cancellation, so it is final. Unwrapping it would replace the reason they chose with whatever is inside it.
 	const wrapped = new AbortError(fixtureError);
 	const controller = new AbortController();
 
@@ -188,7 +196,41 @@ test('a signal reason is not unwrapped, and wins over an AbortError', async () =
 	}), rejectsWith(cancelled));
 });
 
-test('aborts', {timeout: 60_000}, async () => {
+// `shouldRetry` returns true, aborts, and spends the remaining budget. The budget check comes after it, so without the abort check right after `shouldRetry`, this would report the operation failure.
+test('a cancellation is final even when the budget runs out inside shouldRetry', async () => {
+	const originalPerformanceNow = performance.now;
+	let now = 0;
+
+	// A controlled clock. With a real 40ms budget, a worker descheduled for longer than that exhausts it before `shouldRetry` runs, so the abort never happens and the test passes without ever reaching the branch it is about.
+	performance.now = () => now;
+
+	try {
+		const controller = new AbortController();
+		const cancelled = new Error('user cancelled');
+
+		await assert.rejects(
+			pRetry(async () => {
+				throw new Error('operation failed');
+			}, {
+				signal: controller.signal,
+				retries: 5,
+				minTimeout: 0,
+				maxRetryTime: 40,
+				async shouldRetry() {
+					now += 80; // Longer than the whole budget.
+					controller.abort(cancelled);
+					return true;
+				},
+			}),
+			rejectsWith(cancelled),
+		);
+	} finally {
+		performance.now = originalPerformanceNow;
+	}
+});
+
+test('aborts', async t => {
+	await withFakeTime(t);
 	let index = 0;
 
 	await assert.rejects(pRetry(async attemptNumber => {
@@ -260,12 +302,12 @@ test('AbortError short-circuits callbacks', async () => {
 	assert.equal(attempts, 1);
 });
 
-test('aborts with an AbortSignal', {timeout: 60_000}, async () => {
+test('aborts with an AbortSignal', async t => {
+	await withFakeTime(t);
 	let index = 0;
 	const controller = new AbortController();
 
-	// `pRetry` passes the attempt number itself, not an object holding it. Destructuring meant the
-	// abort never fired and the run retried with exponential backoff until the timeout.
+	// The abort happens on the third attempt, so the run stops there and rejects with the default abort reason.
 	await assert.rejects(
 		pRetry(async attemptNumber => {
 			await delay(40);
@@ -285,7 +327,8 @@ test('aborts with an AbortSignal', {timeout: 60_000}, async () => {
 	assert.equal(index, 3);
 });
 
-test('preserves the abort reason', {timeout: 60_000}, async () => {
+test('preserves the abort reason', async t => {
+	await withFakeTime(t);
 	let index = 0;
 	const controller = new AbortController();
 
@@ -339,10 +382,7 @@ test('a non-Error abort reason is preserved verbatim', async () => {
 });
 
 test('a cancellation during shouldRetry is caught before the delay is set up', {timeout: 15_000}, async () => {
-	// The check before `delayForRetry` is what keeps a cancellation prompt. Without it the delay
-	// registers a listener on an already-aborted signal, which never fires, so the caller waits out
-	// the whole backoff after asking to stop. A real timer is the point here: firing it immediately
-	// would let the check after the delay catch the abort instead and prove nothing.
+	// The check before `delayForRetry` is what keeps a cancellation prompt. Without it the delay registers a listener on an already-aborted signal, which never fires, so the caller waits out the whole backoff after asking to stop. A real timer is the point here: firing it immediately would let the check at the top of the next attempt catch the abort instead and prove nothing.
 	const controller = new AbortController();
 	const cancelled = new Error('cancelled');
 
@@ -353,6 +393,8 @@ test('a cancellation during shouldRetry is caught before the delay is set up', {
 			signal: controller.signal,
 			retries: 5,
 			minTimeout: 60 * 60 * 1000,
+			// The point of the hour is that a regression leaves that timer armed, which would stop the process exiting and turn a clean failure into a hang. `unref` keeps the wait pending while letting the process go once the test itself has failed.
+			unref: true,
 			async shouldRetry() {
 				controller.abort(cancelled);
 				return true;
@@ -363,8 +405,7 @@ test('a cancellation during shouldRetry is caught before the delay is set up', {
 });
 
 test('a cancellation is final whatever a callback returns', async () => {
-	// Aborting inside a callback used to change the reported error depending on what that callback
-	// returned, and the operation error could be discarded even when no retry was going to follow.
+	// The reported error must not depend on what the callback returned, including when no retry was going to follow.
 	for (const [abortIn, returnsTrue] of [
 		['shouldConsumeRetry', true],
 		['onFailedAttempt', undefined],
@@ -389,13 +430,78 @@ test('a cancellation is final whatever a callback returns', async () => {
 	}
 });
 
+test('a cancellation is final when the failure does not consume a retry', {timeout: 15_000}, async () => {
+	// `shouldConsumeRetry` returned false, so no delay follows and the run goes straight back to the loop for the next attempt. The abort lands while `shouldRetry` is waiting, so it must be caught before that next attempt starts.
+	const controller = new AbortController();
+	const cancelled = new Error('cancelled');
+	let attempts = 0;
+
+	await assert.rejects(pRetry(async () => {
+		attempts++;
+		throw new Error('operation failed');
+	}, {
+		signal: controller.signal,
+		retries: 5,
+		minTimeout: 0,
+		shouldConsumeRetry: () => false,
+		async shouldRetry() {
+			await delay(20);
+			controller.abort(cancelled);
+			return true;
+		},
+	}), rejectsWith(cancelled));
+
+	// The abort is caught before a second attempt starts.
+	assert.equal(attempts, 1);
+});
+
+test('a callback that throws is reported even when the signal is already aborted', async () => {
+	// The boundary checks sit between the callbacks, so an error raised inside one is not replaced by the abort reason. The docs say so, so it is pinned here rather than left to be inferred.
+	//
+	// Only the callback under test aborts. Aborting in an earlier one would be caught at the boundary before this one is reached, which is the other half of what the docs say.
+	for (const name of ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry']) {
+		const controller = new AbortController();
+		const thrown = new Error(`from ${name}`);
+
+		await assert.rejects(pRetry(async () => {
+			throw new Error('operation failed');
+		}, {
+			signal: controller.signal,
+			minTimeout: 0,
+			async shouldConsumeRetry() {
+				if (name === 'shouldConsumeRetry') {
+					controller.abort(fixtureError);
+					throw thrown;
+				}
+
+				return true;
+			},
+			async onFailedAttempt() {
+				if (name !== 'onFailedAttempt') {
+					return;
+				}
+
+				controller.abort(fixtureError);
+				throw thrown;
+			},
+			async shouldRetry() {
+				if (name === 'shouldRetry') {
+					controller.abort(fixtureError);
+					throw thrown;
+				}
+
+				return true;
+			},
+		}), rejectsWith(thrown), name);
+	}
+});
+
 test('a shared signal aborts every concurrent retry', {timeout: 10_000}, async () => {
 	const controller = new AbortController();
 	let firstCalls = 0;
 	let secondCalls = 0;
 
-	// The first call is still mid-attempt when the second one aborts, so this covers the signal being
-	// watched while a retry is already running rather than only the already-aborted-at-entry case.
+	// The first call is still mid-attempt when the second one aborts, so this covers the signal being watched while a retry is already running rather than only the already-aborted-at-entry case.
 	const first = pRetry(async () => {
 		firstCalls++;
 		await delay(20);
@@ -418,8 +524,7 @@ test('a shared signal aborts every concurrent retry', {timeout: 10_000}, async (
 });
 
 test('AbortError is named and identifies itself as such', () => {
-	// `name` is part of the public shape, and a log line that does not say what went wrong is worse
-	// than one that does.
+	// `name` is part of the public shape, and a log line that does not say what went wrong is worse than one that does.
 	assert.equal(new AbortError('fixture').name, 'AbortError');
 	assert.equal(new AbortError(new Error('fixture')).name, 'AbortError');
 	assert.equal(new (class AbortErrorSubclass extends AbortError {
@@ -431,8 +536,7 @@ test('AbortError is named and identifies itself as such', () => {
 });
 
 test('the abort listener is removed once the delay is over', {timeout: 30_000}, async () => {
-	// A signal that is reused across retries, or shared between calls, would otherwise collect one
-	// stale listener per delay and eventually trip Node's max-listeners warning.
+	// A signal that is reused across retries, or shared between calls, would otherwise collect one stale listener per delay and eventually trip Node's max-listeners warning.
 	const controller = new AbortController();
 
 	for (let index = 0; index < 5; index++) {
@@ -452,18 +556,23 @@ test('the abort listener is removed once the delay is over', {timeout: 30_000}, 
 
 test('the abort listener is removed when the delay is aborted', {timeout: 10_000}, async () => {
 	const controller = new AbortController();
+	let listenersDuringDelay;
 
 	setTimeout(() => {
+		listenersDuringDelay = getEventListeners(controller.signal, 'abort').length;
 		controller.abort(fixtureError);
 	}, 5);
 
+	// The delay is a minute, so the rejection can only come from the listener, not from waiting it out. `unref` keeps a regression from also holding the process open for that minute.
 	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
 	}, {
 		signal: controller.signal,
 		retries: 5,
-		minTimeout: 5000,
+		minTimeout: 60_000,
+		unref: true,
 	}), rejectsWith(fixtureError));
 
+	assert.equal(listenersDuringDelay, 1, 'the delay listens for the abort');
 	assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
 });

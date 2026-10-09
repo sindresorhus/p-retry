@@ -1,11 +1,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {execa} from 'execa';
 import delay from 'delay';
 import {
 	fixture,
 	fixtureError,
 	rejectsWith,
+	removeTemporaryScript,
+	temporaryScript,
 	withFakeTime,
+	collapseDelays,
 } from './helpers.js';
 import pRetry, {makeRetriable, AbortError} from './index.js';
 
@@ -99,70 +103,20 @@ test('no retry on TypeError', {timeout: 30_000}, async () => {
 	assert.equal(index, 1);
 });
 
-test('a shouldConsumeRetry that returns nothing still consumes a retry', async () => {
-	let attempts = 0;
-
-	await assert.rejects(pRetry(async () => {
-		attempts++;
-		throw new Error('fail');
-	}, {
-		retries: 2,
-		minTimeout: 0,
-		// A logging-only callback with the `return` forgotten, so it resolves to `undefined`.
-		async shouldConsumeRetry({retriesLeft}) {
-			attempts += retriesLeft - 1;
-		},
-	}), {message: 'fail'});
-
-	// `retries` stays the hard bound instead of being ignored forever.
-	assert.equal(attempts, 3);
-});
-
 test('shouldRetry is not called for non-network TypeError', async () => {
 	const typeErrorFixture = new TypeError('type-error-fixture');
-	let retryDecisionCount = 0; // A count, despite the name.
+	let retryDecisions = 0;
 
 	await assert.rejects(pRetry(async () => {
 		throw typeErrorFixture;
 	}, {
 		shouldRetry() {
-			retryDecisionCount++;
+			retryDecisions++;
 			return true;
 		},
 	}), rejectsWith(typeErrorFixture));
 
-	assert.equal(retryDecisionCount, 0);
-});
-
-test('async shouldRetry respects maxRetryTime after callback', async t => {
-	const originalPerformanceNow = performance.now;
-	let now = 0;
-
-	// A controlled clock, so the budget cannot be spent before the callback is reached however loaded
-	// the machine is. With a real 50ms budget, a slow worker exhausts it before `shouldRetry` runs and
-	// the test passes without ever exercising the check that this is about.
-	performance.now = () => now;
-
-	t.after(() => {
-		performance.now = originalPerformanceNow;
-	});
-
-	let attempts = 0;
-
-	await assert.rejects(pRetry(async () => {
-		attempts++;
-		now += 10; // The operation itself.
-		throw new Error('fail');
-	}, {
-		retries: 5,
-		maxRetryTime: 50,
-		async shouldRetry() {
-			now += 100; // The callback, which is what has to exhaust the budget.
-			return true;
-		},
-	}), {message: 'fail'});
-
-	assert.equal(attempts, 1);
+	assert.equal(retryDecisions, 0);
 });
 
 test('a non-network TypeError is not retried whatever shouldConsumeRetry says', async () => {
@@ -234,9 +188,11 @@ test('retry on TypeError - failed to fetch', {timeout: 60_000}, async t => {
 test('errors are preserved when maxRetryTime exceeded', {timeout: 30_000}, async () => {
 	const originalError = new Error('original error');
 	const maxRetryTime = 100;
+	let attempts = 0;
 
 	await assert.rejects(pRetry(
 		async () => {
+			attempts++;
 			await delay(maxRetryTime + 50); // Ensure we exceed maxRetryTime
 			throw originalError;
 		},
@@ -245,6 +201,9 @@ test('errors are preserved when maxRetryTime exceeded', {timeout: 30_000}, async
 			minTimeout: 0,
 		},
 	), rejectsWith(originalError));
+
+	// The first attempt alone runs past the budget, so there is nothing left to retry. Without this the test passes whether or not the budget was honoured, since the error comes out the same either way.
+	assert.equal(attempts, 1);
 });
 
 test('shouldConsumeRetry runs before onFailedAttempt when maxRetryTime is exhausted', async () => {
@@ -410,14 +369,16 @@ test('onFailedAttempt can throw to abort retries', async () => {
 	}), rejectsWith(error));
 });
 
-test('retry context object is immutable', async () => {
+test('retry context object is immutable', {timeout: 30_000}, async () => {
 	const contexts = [];
 
-	// Matched on the TypeError, so an unrelated failure at the call site cannot pass this off as the
-	// freeze working.
+	// Matched on the TypeError, so an unrelated failure at the call site cannot pass this off as the freeze working.
+	//
+	// The delay is 0 because this is the only thing that stops the run when the freeze is missing. On the defaults the `defineProperty` would succeed, the run would carry on, and it would take the full 1000 + 2000 + … + 512000ms of backoff to fail, which reads as a hang rather than a failure.
 	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
 	}, {
+		minTimeout: 0,
 		shouldConsumeRetry(context) {
 			contexts.push(context);
 		},
@@ -433,7 +394,8 @@ test('retry context object is immutable', async () => {
 	assert.notStrictEqual(contexts[0], contexts[1], 'they are distinct objects');
 });
 
-test('onFailedAttempt can be undefined', {timeout: 30_000}, async () => {
+test('onFailedAttempt can be undefined', async t => {
+	await withFakeTime(t);
 	const error = new Error('thrown from onFailedAttempt');
 
 	await assert.rejects(pRetry(() => {
@@ -444,7 +406,8 @@ test('onFailedAttempt can be undefined', {timeout: 30_000}, async () => {
 	}), rejectsWith(error));
 });
 
-test('shouldRetry can be undefined', {timeout: 30_000}, async () => {
+test('shouldRetry can be undefined', async t => {
+	await withFakeTime(t);
 	const error = new Error('thrown from onFailedAttempt');
 
 	await assert.rejects(pRetry(() => {
@@ -453,23 +416,6 @@ test('shouldRetry can be undefined', {timeout: 30_000}, async () => {
 		shouldRetry: undefined,
 		retries: 1,
 	}), rejectsWith(error));
-});
-
-test('aborts immediately if signal is already aborted', async () => {
-	const controller = new AbortController();
-	controller.abort();
-
-	// A default abort reason is a `DOMException`, but its `name` is `AbortError`, so check the class
-	// rather than the name the way the other assertions do.
-	await assert.rejects(
-		pRetry(
-			async () => {
-				throw new Error('test');
-			},
-			{signal: controller.signal},
-		),
-		error => error instanceof DOMException,
-	);
 });
 
 test('throws on negative retry count', async () => {
@@ -754,8 +700,14 @@ test('shouldConsumeRetry receives normalized error for non-error throws', async 
 test('shouldConsumeRetry returning false still respects retry budget', async () => {
 	let attempts = 0;
 
+	// With `retries: 0` the run must stop after the first failure, even though that failure did not consume a retry. The `AbortError` on a later attempt only keeps a regression from looping forever, so it fails on the rejection message rather than hanging.
 	await assert.rejects(pRetry(async () => {
 		attempts++;
+
+		if (attempts === 5) {
+			throw new AbortError('looped');
+		}
+
 		throw new Error('fail');
 	}, {
 		retries: 0,
@@ -768,7 +720,7 @@ test('shouldConsumeRetry returning false still respects retry budget', async () 
 
 test('shouldConsumeRetry returning false still calls shouldRetry', async () => {
 	let attempts = 0;
-	let retryDecisionCount = 0; // A count, despite the name.
+	let retryDecisionCount = 0;
 
 	await assert.rejects(pRetry(async () => {
 		attempts++;
@@ -862,6 +814,21 @@ test('callbacks are skipped or not based on the error type', async () => {
 	}
 });
 
+test('the documented defaults are the ones used', {timeout: 30_000}, async t => {
+	const delays = collapseDelays(t);
+
+	// No `factor` is passed, so this pins its default of 2. The other backoff tests all pass one, and the tests that use the default have a `minTimeout` of 0, which never reaches the arithmetic.
+	await assert.rejects(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 3,
+		minTimeout: 100,
+		randomize: false,
+	}), {message: 'fail'});
+
+	assert.deepEqual(delays, [100, 200, 400]);
+});
+
 test('the operation error is preserved on every rejection path', async () => {
 	const target = new Error('target');
 	const scenarios = [
@@ -921,12 +888,9 @@ test('each callback receives its own frozen context object', async () => {
 	}), {message: 'fail'});
 
 	assert.equal(contexts.length, 3);
-	// `onFailedAttempt` and `shouldRetry` share one object; only `shouldConsumeRetry` gets its own.
+	// `onFailedAttempt` and `shouldRetry` share one object; only `shouldConsumeRetry` gets its own. That they are frozen is checked by `retry context object is immutable`.
 	assert.equal(new Set(contexts).size, 2);
 	assert.equal(contexts[1], contexts[2]);
-	for (const context of contexts) {
-		assert.ok(Object.isFrozen(context));
-	}
 });
 
 test('retriesLeft and retriesConsumed always add up to retries', async () => {
@@ -953,28 +917,25 @@ test('retriesLeft and retriesConsumed always add up to retries', async () => {
 	}
 });
 
-test('retryDelay is always a non-negative integer', {timeout: 30_000}, async () => {
+test('the backoff is rounded to whole milliseconds', async t => {
+	collapseDelays(t);
 	const retryDelays = [];
 
+	// A fractional `factor` lands on a fraction, so the raw backoff is 7, 7.7, 8.47 and so on. One fraction is above a half and one is below, so rounding up or down every time would both fail.
 	await assert.rejects(pRetry(async () => {
 		throw new Error('fail');
 	}, {
-		retries: 5,
+		retries: 4,
 		minTimeout: 7,
-		factor: 1.5,
-		maxTimeout: 13,
+		factor: 1.1,
+		randomize: false,
 		onFailedAttempt({retryDelay}) {
 			retryDelays.push(retryDelay);
 		},
 	}), {message: 'fail'});
 
-	assert.equal(retryDelays.length, 6);
-	for (const retryDelay of retryDelays) {
-		// Not `Number.isSafeInteger`, which would reject a huge `retries` that is accepted on purpose.
-		// eslint-disable-next-line unicorn/prefer-number-is-safe-integer
-		assert.ok(Number.isInteger(retryDelay), `${retryDelay} is an integer`);
-		assert.ok(retryDelay >= 0, `${retryDelay} is not negative`);
-	}
+	// 7, then 7.7 rounded up to 8, then 8.47 rounded down to 8, then 9.317 to 9. The last attempt has nothing left to retry.
+	assert.deepEqual(retryDelays, [7, 8, 8, 9, 0]);
 });
 
 test('maxRetryTime does not interrupt an attempt that is already running', {timeout: 30_000}, async () => {
@@ -987,8 +948,7 @@ test('maxRetryTime does not interrupt an attempt that is already running', {time
 });
 
 test('the options object is not mutated', async () => {
-	// `pRetry` normalizes the options it is given, so writing through to the caller's object would
-	// change the behaviour of the next call. `makeRetriable` shares one object across all of its calls.
+	// `pRetry` normalizes the options it is given, so writing through to the caller's object would change the behaviour of the next call. `makeRetriable` shares one object across all of its calls.
 	const options = {
 		retries: 2,
 		factor: 0.5,
@@ -1004,8 +964,7 @@ test('the options object is not mutated', async () => {
 
 	assert.equal(JSON.stringify(options), before);
 
-	// One shared options object across every call, so a normalization that wrote through would
-	// change what the next call does. Each call must get its own initial attempt plus one retry.
+	// One shared options object across every call, so a normalization that wrote through would change what the next call does. Each call must get its own initial attempt plus one retry.
 	const shared = {retries: 1, minTimeout: 0};
 	const failure = new Error('fail');
 	let calls = 0;
@@ -1079,10 +1038,11 @@ test('a callback may return a thenable', {timeout: 30_000}, async () => {
 });
 
 test('concurrent calls through one retrier are independent', async () => {
-	let attempts = 0;
+	// Each call gets its own budget, so each one runs its own attempts. A shared counter would pass even if the calls were sharing one budget between them.
+	const attemptsByCall = new Map();
 	const retried = makeRetriable(async value => {
-		attempts++;
-		if (attempts < 3) {
+		attemptsByCall.set(value, (attemptsByCall.get(value) ?? 0) + 1);
+		if (attemptsByCall.get(value) < 3) {
 			throw new Error('fail');
 		}
 
@@ -1090,6 +1050,7 @@ test('concurrent calls through one retrier are independent', async () => {
 	}, {retries: 5, minTimeout: 0});
 
 	assert.deepEqual(await Promise.all([retried(1), retried(2), retried(3)]), [2, 4, 6]);
+	assert.deepEqual([...attemptsByCall].toSorted((a, b) => a[0] - b[0]), [[1, 3], [2, 3], [3, 3]]);
 });
 
 test('NaN numeric options throw', async () => {
@@ -1100,8 +1061,7 @@ test('NaN numeric options throw', async () => {
 		maxRetryTime: 'Expected `maxRetryTime` to be a number or Infinity.',
 	};
 
-	// `NaN` is a number, so it needs its own check. The two options that take `Infinity` have nothing
-	// later to catch it, and a `NaN` delay fires straight away.
+	// `NaN` is a number, so it needs its own check. The two options that take `Infinity` have nothing later to catch it, and a `NaN` delay fires straight away.
 	for (const [name, message] of Object.entries(messages)) {
 		await assert.rejects(pRetry(async () => {}, {[name]: NaN}), {
 			name: 'TypeError',
@@ -1113,4 +1073,36 @@ test('NaN numeric options throw', async () => {
 test('makeRetriable works without options', async () => {
 	const retried = makeRetriable(() => fixture);
 	assert.equal(await retried(), fixture);
+});
+
+// A `shouldConsumeRetry` that returns nothing must stay bounded. An in-process timeout cannot catch a regression here: the failure is a microtask loop that starves the event loop, so a timer-based timeout never fires and the file wedges instead of failing. A subprocess is killed from outside, so this reports a failure in seconds rather than hanging.
+test('a shouldConsumeRetry that returns nothing is bounded, checked from outside', {timeout: 30_000}, async () => {
+	const temporaryFile = await temporaryScript('p-retry-undefined-bounded.mjs', `
+const controller = new AbortController();
+let attempts = 0;
+
+try {
+	await pRetry(async () => {
+		attempts++;
+		throw new Error('fail');
+	}, {
+		retries: 2,
+		minTimeout: 0,
+		signal: controller.signal,
+		// A logging-only callback that forgets to return, so it resolves to undefined.
+		async shouldConsumeRetry() {},
+	});
+} catch {
+	console.log('attempts=' + attempts);
+}
+`);
+
+	try {
+		const {timedOut, stdout} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		assert.equal(timedOut, false, 'the run must finish rather than loop forever');
+		// Two retries means three attempts.
+		assert.match(stdout, /attempts=3/v);
+	} finally {
+		await removeTemporaryScript(temporaryFile);
+	}
 });
