@@ -1,3 +1,4 @@
+import process from 'node:process';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execa} from 'execa';
@@ -426,7 +427,7 @@ main();
 `);
 
 	try {
-		const {stderr, stdout} = await execa('node', [temporaryFile], {timeout: 20_000, reject: false});
+		const {stderr, stdout} = await execa(process.execPath, [temporaryFile], {timeout: 20_000, reject: false});
 		const output = stderr + stdout;
 		const stack = output.split('STACKTRACE_START', 2)[1]?.split('STACKTRACE_END', 1)[0]?.trim();
 
@@ -434,15 +435,14 @@ main();
 
 		assert.match(stack, /Error: foo2 failed/v);
 
-		assert.match(stack, /foo2/v);
-		assert.match(stack, /foo1/v);
-		assert.match(stack, /main/v);
+		// Matched as frames, so the message line and the file path cannot stand in for a function name.
+		const frame = name => new RegExp(String.raw`^\s*at async ${name} `, 'v');
 
 		// Check order
 		const lines = stack.split('\n');
-		const foo2Index = lines.findIndex(line => /foo2/v.test(line));
-		const foo1Index = lines.findIndex(line => /foo1/v.test(line));
-		const mainIndex = lines.findIndex(line => /main/v.test(line));
+		const foo2Index = lines.findIndex(line => frame('foo2').test(line));
+		const foo1Index = lines.findIndex(line => frame('foo1').test(line));
+		const mainIndex = lines.findIndex(line => frame('main').test(line));
 
 		assert.notStrictEqual(foo2Index, -1, 'foo2 should appear in the stack trace');
 		assert.ok(foo1Index > foo2Index, 'foo1 should appear after foo2');
@@ -571,16 +571,16 @@ test('randomized delays stay within minTimeout and maxTimeout', async t => {
 	assert.deepEqual(retryDelays, [200, 300, 300, 300, 300, 0]);
 });
 
-test('maxTimeout caps the delay, and rounds a fractional cap down', {timeout: 30_000}, async t => {
-	// A fractional `maxTimeout` must not give a fractional delay. The cap must still be honoured, so it rounds down.
+test('maxTimeout caps the delay, and rounds a fractional cap up', {timeout: 30_000}, async t => {
+	// A fractional `maxTimeout` must not give a fractional delay. It rounds up, so a cap below 1 still schedules a timer and yields to the event loop.
 	//
 	// `minTimeout` of 100 is above every cap here, so every retry is capped. Each row names its own retry count, because a row with no retries never computes a delay at all and would assert nothing: a cap of 0 is the one row that has to retry to show that it scheduled no timer.
 	const table = new Map([
-		[10.5, {retries: 3, expected: [10, 10, 10]}],
-		[7.5, {retries: 3, expected: [7, 7, 7]}],
+		[10.5, {retries: 3, expected: [11, 11, 11]}],
+		[7.5, {retries: 3, expected: [8, 8, 8]}],
 		[13, {retries: 3, expected: [13, 13, 13]}],
 		[50, {retries: 1, expected: [50]}],
-		[0.5, {retries: 2, expected: []}],
+		[0.5, {retries: 2, expected: [1, 1]}],
 		[0, {retries: 2, expected: []}],
 	]);
 
@@ -613,18 +613,18 @@ test('unref lets the process exit while a retry is pending', {timeout: 15_000}, 
 	// A real process, because the point is whether a pending timer keeps it alive. The marker is printed before the await, so a script that dies on its first line is told apart from one that ran, reached `pRetry`, and then let the process go.
 	const temporaryFile = await temporaryScript('p-retry-unref-test.mjs', `
 console.log('started');
-try {
-	await pRetry(async () => {
-		throw new Error('fail');
-	}, {retries: 5, minTimeout: 60_000, unref: true});
-} catch {}
+await pRetry(async () => {
+	throw new Error('fail');
+}, {retries: 5, minTimeout: 60_000, unref: true});
 `);
 
 	try {
 		// The pending delay is a minute, so this can only finish if `unref` did its job. The subprocess timeout sits below this test's own, so a regression fails on the assertion rather than as a hang.
-		const {timedOut, stdout} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		const {timedOut, exitCode, stdout} = await execa(process.execPath, [temporaryFile], {timeout: 8000, reject: false});
 		assert.match(stdout, /started/v, 'the script reached p-retry');
 		assert.ok(!timedOut, 'the process should exit while a retry is pending');
+		// Node exits with 13 when the top-level await is still unsettled, so this proves the retry was pending and `pRetry` did not reject early.
+		assert.equal(exitCode, 13, 'the retry should still be pending when the process exits');
 	} finally {
 		await removeTemporaryScript(temporaryFile);
 	}
@@ -642,16 +642,16 @@ try {
 	await pRetry(async () => {
 		throw new Error('fail');
 	}, {signal: controller.signal, retries: 5, minTimeout: 60_000});
-} catch {}
-
-console.log('settled');
+} catch (error) {
+	console.log('settled: ' + error.message);
+}
 `);
 
 	try {
-		const {timedOut, exitCode, stdout} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		const {timedOut, exitCode, stdout} = await execa(process.execPath, [temporaryFile], {timeout: 8000, reject: false});
 		assert.equal(exitCode, 0, 'the script ran to completion');
 		// Printed after the retry settles, so it is only reached if the abort landed and was waited out.
-		assert.match(stdout, /settled/v, 'the abort settled the pending retry');
+		assert.match(stdout, /settled: cancelled/v, 'the abort settled the pending retry');
 		assert.ok(!timedOut, 'the abort should clear the pending delay');
 	} finally {
 		await removeTemporaryScript(temporaryFile);

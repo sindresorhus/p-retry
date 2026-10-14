@@ -177,7 +177,7 @@ export type Options = {
 
 	Delays are also capped at the largest value a timer can hold, 2147483647ms, about 24.9 days. A longer one is clamped to that rather than firing straight away.
 
-	A `maxTimeout` below `1` millisecond rounds down to `0`. Like `minTimeout: 0`, this schedules no timer, so attempts run back to back without yielding to timers or timer-driven `signal` aborts. See the warning on `minTimeout`.
+	A fractional `maxTimeout` rounds up to a whole millisecond. A `maxTimeout` of `0` schedules no timer, like `minTimeout: 0`. See the warning on `minTimeout`.
 
 	@default Infinity
 	*/

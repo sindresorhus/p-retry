@@ -1,3 +1,4 @@
+import process from 'node:process';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execa} from 'execa';
@@ -248,7 +249,10 @@ test('retries: null uses the default', async () => {
 	assert.equal(attempts, 11); // The default of 10 retries, plus the first attempt.
 });
 
-test('null option values use the defaults', async () => {
+test('null option values use the defaults', async t => {
+	// The waits are collapsed, because `minTimeout: null` means the default of a whole second.
+	collapseDelays(t);
+
 	// `unref` in particular has to be defaulted before it is validated, or `null` is not a boolean.
 	for (const options of [
 		{retries: null},
@@ -263,8 +267,19 @@ test('null option values use the defaults', async () => {
 		{shouldRetry: null},
 		{shouldConsumeRetry: null},
 	]) {
-		// A rejected promise from `pRetry` is the failure, so the fixture coming back is the assertion.
-		assert.equal(await pRetry(async () => fixture, options), fixture);
+		// The first attempt fails, so the callback defaults are really called. A rejected promise from `pRetry` is the failure, so the fixture coming back is the assertion.
+		let attempts = 0;
+		const result = await pRetry(async () => {
+			attempts++;
+			if (attempts === 1) {
+				throw new Error('fail');
+			}
+
+			return fixture;
+		}, options);
+
+		assert.equal(result, fixture, JSON.stringify(options));
+		assert.equal(attempts, 2, JSON.stringify(options));
 	}
 });
 
@@ -757,6 +772,36 @@ test('shouldConsumeRetry sees retryDelay as 0 when retriesLeft is 0', async () =
 	assert.equal(retryDelay, 0);
 });
 
+test('retryDelay is 0 for a TypeError that is never retried', async () => {
+	// A network `TypeError` is retried, so it is the control: the same setup with a real delay shows the 0 comes from the error type and not from the options.
+	const table = new Map([
+		['nope', [0, 0]],
+		['fetch failed', [100, 100]],
+	]);
+
+	for (const [message, expected] of table) {
+		const retryDelays = [];
+
+		await assert.rejects(pRetry(async () => {
+			throw new TypeError(message);
+		}, {
+			retries: 1,
+			minTimeout: 100,
+			randomize: false,
+			shouldConsumeRetry({retryDelay}) {
+				retryDelays.push(retryDelay);
+				return true;
+			},
+			onFailedAttempt({retryDelay}) {
+				retryDelays.push(retryDelay);
+			},
+			shouldRetry: () => false,
+		}), {name: 'TypeError', message}, message);
+
+		assert.deepEqual(retryDelays, expected, message);
+	}
+});
+
 test('retryDelay is zero when shouldConsumeRetry skips the retry', async () => {
 	const retryDelays = [];
 
@@ -1098,7 +1143,7 @@ try {
 `);
 
 	try {
-		const {timedOut, stdout} = await execa('node', [temporaryFile], {timeout: 8000, reject: false});
+		const {timedOut, stdout} = await execa(process.execPath, [temporaryFile], {timeout: 8000, reject: false});
 		assert.equal(timedOut, false, 'the run must finish rather than loop forever');
 		// Two retries means three attempts.
 		assert.match(stdout, /attempts=3/v);

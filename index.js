@@ -93,8 +93,8 @@ function calculateDelay(retriesConsumed, options) {
 
 	const timeout = Math.round(random * options.minTimeout * (options.factor ** (attempt - 1)));
 
-	// `maxTimeout` rounds down, so a fractional cap still gives a whole number of milliseconds while staying within what the caller asked for. `Math.floor(Infinity)` is `Infinity`.
-	return Math.min(timeout, Math.floor(options.maxTimeout), maximumDelay);
+	// `maxTimeout` rounds up, so a fractional cap still gives a whole number of milliseconds. Rounding down would turn a cap below 1 into no timer at all, which never yields to the event loop. `Math.ceil(Infinity)` is `Infinity`.
+	return Math.min(timeout, Math.ceil(options.maxTimeout), maximumDelay);
 }
 
 function calculateRemainingTime(start, max) {
@@ -107,9 +107,9 @@ async function delayForRetry(delay, options) {
 	}
 
 	await new Promise((resolve, reject) => {
+		// Registered with `once`, so it removes itself when it fires.
 		const onAbort = () => {
 			clearTimeout(timeoutToken);
-			options.signal?.removeEventListener('abort', onAbort);
 			reject(options.signal.reason);
 		};
 
@@ -173,9 +173,12 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		? options.retries - retriesConsumed
 		: options.retries;
 
-	// Out of time already, so the callbacks must be told that no retry follows.
+	// A `TypeError` normally means the operation itself is broken rather than the thing it was trying to reach, so retrying it does not help. A network `TypeError` is the exception, and its message differs per runtime, so it has to be recognised rather than assumed.
+	const isRetriableError = !(normalizedError instanceof TypeError) || isNetworkError(normalizedError);
+
+	// Out of time already, or a failure that is never retried, so the callbacks must be told that no retry follows.
 	const timeLeft = calculateRemainingTime(startTime, options.maxRetryTime);
-	const delayTime = timeLeft > 0 ? calculateDelay(retriesConsumed, options) : 0;
+	const delayTime = isRetriableError && timeLeft > 0 ? calculateDelay(retriesConsumed, options) : 0;
 
 	const consumeRetryContext = Object.freeze({
 		error: normalizedError,
@@ -205,11 +208,11 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 
 	const remainingTime = calculateRemainingTime(startTime, options.maxRetryTime);
 
-	// No time or budget left, or a failure that retrying cannot help with. A `TypeError` normally means the operation itself is broken rather than the thing it was trying to reach, so retrying it does not help. A network `TypeError` is the exception, and its message differs per runtime, so it has to be recognised rather than assumed.
+	// No time or budget left, or a failure that retrying cannot help with.
 	if (
-		remainingTime <= 0
+		!isRetriableError
+		|| remainingTime <= 0
 		|| retriesLeft <= 0
-		|| (normalizedError instanceof TypeError && !isNetworkError(normalizedError))
 	) {
 		throw normalizedError;
 	}
@@ -270,8 +273,8 @@ export default async function pRetry(input, options = {}) {
 	validateNumberOption('maxTimeout', options.maxTimeout, {allowInfinity: true});
 	validateNumberOption('maxRetryTime', options.maxRetryTime, {allowInfinity: true});
 
-	// Treat non-positive factor as 1 to avoid zero backoff or negative behavior
-	if (!(options.factor > 0)) {
+	// A negative factor is rejected above, so this only catches `0`. Treat it as `1` to keep the delay constant instead of dropping to zero after the first retry.
+	if (options.factor === 0) {
 		options.factor = 1;
 	}
 
