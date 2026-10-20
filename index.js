@@ -72,6 +72,10 @@ export class AbortError extends Error {
 			// Created here, so it already captures every caller frame. Copying `this.stack` instead would only rewrite the header, which is rendered lazily from `name` and `message` at read time. It also stringifies a non-string message, so reuse its result below.
 			this.originalError = new Error(message);
 			({message} = this.originalError);
+
+			// The caller sees this error, so the frame for this constructor is dropped where the runtime supports it. Left in, the top frame blames p-retry for an error the caller threw. An error the caller passed keeps its own stack, which points at their throw site already. V8-only, hence the lint exception, and the optional call leaves the stack as it is where it is missing.
+			// eslint-disable-next-line unicorn/no-nonstandard-builtin-properties
+			Error.captureStackTrace?.(this.originalError, AbortError);
 		}
 
 		this.message = message;

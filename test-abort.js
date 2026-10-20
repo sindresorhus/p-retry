@@ -23,12 +23,13 @@ test('AbortError - error', () => {
 	assert.equal(error.message, 'fixture');
 });
 
-test('AbortError - stack trace keeps the message', () => {
-	// The thrown error is `originalError`, so its stack must still name the failure and point at the caller.
+test('AbortError - stack trace keeps the message and points at the caller', () => {
+	// The thrown error is `originalError`, so its stack must still name the failure and point at the caller. A first frame inside p-retry would blame the library for an error the caller threw.
 	const {stack} = new AbortError('fixture').originalError;
+	const firstFrame = stack.split('\n', 2)[1];
+
 	assert.ok(stack.startsWith('Error: fixture'));
-	assert.ok(stack.includes('new AbortError'));
-	assert.ok(stack.includes('test-abort.js'));
+	assert.match(firstFrame, /test-abort\.js/v);
 });
 
 test('AbortError - message is always a string', () => {
@@ -36,6 +37,20 @@ test('AbortError - message is always a string', () => {
 	assert.equal(new AbortError(42).message, '42');
 	assert.equal(new AbortError().message, '');
 	assert.equal(new AbortError().message, new AbortError().originalError.message);
+});
+
+test('AbortError - works where the runtime cannot trim a stack', () => {
+	// The stack trimming is V8-only, so a runtime without it must still get a usable error. Read through `Reflect` rather than as a property, because it is not part of the standard library.
+	const original = Reflect.get(Error, 'captureStackTrace');
+	Reflect.set(Error, 'captureStackTrace', undefined);
+
+	try {
+		const {message, stack} = new AbortError('fixture').originalError;
+		assert.equal(message, 'fixture');
+		assert.ok(stack.startsWith('Error: fixture'));
+	} finally {
+		Reflect.set(Error, 'captureStackTrace', original);
+	}
 });
 
 test('AbortSignal short-circuits callbacks', async () => {
