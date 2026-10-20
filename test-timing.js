@@ -227,6 +227,109 @@ test('delays stay 0 when minTimeout is 0 and the factor overflows', async t => {
 	assert.deepEqual(scheduledDelays, [], 'no timer was scheduled');
 });
 
+test('no timer is scheduled when no retry follows', async t => {
+	// The delay is long enough that a timer would be unmistakable in `delays`, and collapsed so a regression fails at once instead of waiting it out.
+	const delays = collapseDelays(t);
+
+	const table = [
+		['shouldRetry refuses the retry', {retries: 3, shouldRetry: () => false}, async () => {
+			throw new Error('fail');
+		}, {message: 'fail'}],
+		['the retry is not consumed', {retries: 5, shouldConsumeRetry: () => false}, (() => {
+			let attempts = 0;
+			// A skipped retry has no delay of its own, so the second attempt is what ends the run.
+			return async () => {
+				attempts++;
+				if (attempts > 1) {
+					throw new AbortError('stop');
+				}
+
+				throw new Error('fail');
+			};
+		})(), {message: 'stop'}],
+		['the budget is already spent', {retries: 3, maxRetryTime: 0}, async () => {
+			throw new Error('fail');
+		}, {message: 'fail'}],
+		['the error is never retried', {retries: 3}, async () => {
+			throw new TypeError('nope');
+		}, {name: 'TypeError', message: 'nope'}],
+	];
+
+	for (const [label, options, input, expected] of table) {
+		const before = delays.length;
+
+		await assert.rejects(pRetry(input, {minTimeout: 5000, ...options}), expected, label);
+
+		assert.deepEqual(delays.slice(before), [], label);
+	}
+});
+
+test('the delay that is scheduled is the one the callbacks are shown', async t => {
+	const delays = collapseDelays(t);
+	const retryDelays = [];
+	const originalRandom = Math.random;
+	const sequence = [0, 0.999, 0.5];
+	let draws = 0;
+
+	Math.random = () => sequence[draws++] ?? 0;
+
+	t.after(() => {
+		Math.random = originalRandom;
+	});
+
+	await assert.rejects(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 3,
+		minTimeout: 100,
+		factor: 2,
+		randomize: true,
+		onFailedAttempt({retryDelay}) {
+			retryDelays.push(retryDelay);
+		},
+	}), {message: 'fail'});
+
+	// The last failure has nothing left to wait for, so its reported delay of 0 has no timer behind it.
+	assert.deepEqual(delays, retryDelays.slice(0, -1));
+	assert.equal(retryDelays.at(-1), 0);
+});
+
+test('unref is applied to a delay shortened by maxRetryTime', {timeout: 30_000}, async t => {
+	let unrefCalls = 0;
+	const originalSetTimeout = setTimeout;
+	const originalPerformanceNow = performance.now;
+	let now = 0;
+
+	performance.now = () => now;
+	globalThis.setTimeout = function_ => {
+		const token = originalSetTimeout(function_, 0);
+		token.unref = () => {
+			unrefCalls++;
+			return token;
+		};
+
+		return token;
+	};
+
+	t.after(() => {
+		globalThis.setTimeout = originalSetTimeout;
+		performance.now = originalPerformanceNow;
+	});
+
+	await assert.rejects(pRetry(async () => {
+		now += 90; // Leaves 10 of the 100ms budget.
+		throw new Error('fail');
+	}, {
+		retries: 2,
+		minTimeout: 1000,
+		maxRetryTime: 100,
+		unref: true,
+	}), {message: 'fail'});
+
+	// The 1000ms delay was trimmed to the 10ms that was left, and the trimmed timer still has to be unref'd.
+	assert.equal(unrefCalls, 1);
+});
+
 test('randomize affects retry delays', async t => {
 	const delays = collapseDelays(t);
 	const originalRandom = Math.random;
@@ -582,6 +685,76 @@ test('the delay is truncated to the time left', async t => {
 	}), {message: 'fail'});
 
 	assert.deepEqual(delays, [90, 80, 70]);
+});
+
+test('the delays work with the built-in test timer mocking', async t => {
+	// The readme points at `mock.timers` as the way to test with this package, so the timers have to come from the global scope at call time.
+	t.mock.timers.enable({apis: ['setTimeout']});
+
+	let attempts = 0;
+	const promise = pRetry(async () => {
+		attempts++;
+		if (attempts < 3) {
+			throw new Error('fail');
+		}
+
+		return fixture;
+	}, {retries: 3, minTimeout: 1000});
+
+	// The delay is only scheduled once the failure has settled, and the retry only starts once the timer has been ticked past.
+	for (const wait of [1000, 2000]) {
+		await new Promise(resolve => {
+			setImmediate(resolve);
+		});
+		t.mock.timers.tick(wait);
+	}
+
+	await new Promise(resolve => {
+		setImmediate(resolve);
+	});
+
+	assert.equal(await promise, fixture);
+	assert.equal(attempts, 3);
+});
+
+test('a minTimeout below half a millisecond schedules no timer', async t => {
+	// Documented, because it is the same no-timer state as `minTimeout: 0`. The second row is the control that shows where the rounding turns over. `randomize` is off, since it scales the delay up first and moves the threshold.
+	const delays = collapseDelays(t);
+	let readFrom = 0;
+
+	for (const [minTimeout, expected] of [[0.4, []], [0.5, [1]]]) {
+		await assert.rejects(pRetry(async () => {
+			throw new Error('fail');
+		}, {
+			retries: 1,
+			minTimeout,
+			factor: 1,
+			randomize: false,
+		}), {message: 'fail'}, String(minTimeout));
+
+		assert.deepEqual(delays.slice(readFrom), expected, String(minTimeout));
+		readFrom = delays.length;
+	}
+
+	// `randomize` scales the delay up before it is rounded, so the same `minTimeout` can get back above the threshold.
+	const originalRandom = Math.random;
+
+	Math.random = () => 0.9;
+
+	t.after(() => {
+		Math.random = originalRandom;
+	});
+
+	await assert.rejects(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 1,
+		minTimeout: 0.4,
+		factor: 1,
+		randomize: true,
+	}), {message: 'fail'});
+
+	assert.deepEqual(delays.slice(readFrom), [1]);
 });
 
 test('randomized delays stay within minTimeout and maxTimeout', async t => {

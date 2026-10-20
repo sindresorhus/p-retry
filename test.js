@@ -608,6 +608,73 @@ test('handles non-Error rejection values', async () => {
 	});
 });
 
+test('the last allowed attempt can still succeed', async () => {
+	let attempts = 0;
+
+	const result = await pRetry(async () => {
+		attempts++;
+		return attempts === 3 ? fixture : Promise.reject(fixtureError);
+	}, {retries: 2, minTimeout: 0});
+
+	// Two retries means three attempts, and the third one must run for the run to be able to succeed at all.
+	assert.equal(result, fixture);
+	assert.equal(attempts, 3);
+});
+
+test('attempt numbers count the failures that do not consume a retry', async () => {
+	const attemptNumbers = [];
+	let failures = 0;
+
+	await assert.rejects(pRetry(async attemptNumber => {
+		attemptNumbers.push(attemptNumber);
+		throw new Error('fail');
+	}, {
+		retries: 2,
+		minTimeout: 0,
+		shouldConsumeRetry() {
+			// The first failure is free, every failure after it costs a retry.
+			failures++;
+			return failures > 1;
+		},
+	}), {message: 'fail'});
+
+	// The free failure still counts as an attempt, so the numbers are consecutive rather than following the consumed retries.
+	assert.deepEqual(attemptNumbers, [1, 2, 3, 4]);
+});
+
+test('a huge finite retries count behaves as effectively forever', async () => {
+	let attempts = 0;
+
+	// Accepted on purpose, so it has to be usable. The `AbortError` is the bound the caller chose.
+	await assert.rejects(pRetry(async () => {
+		attempts++;
+		if (attempts === 50) {
+			throw new AbortError('stop');
+		}
+
+		throw new Error('fail');
+	}, {retries: Number.MAX_SAFE_INTEGER, minTimeout: 0}), {message: 'stop'});
+
+	assert.equal(attempts, 50);
+});
+
+test('retriesLeft never goes below zero for a failure that does not consume', async () => {
+	let retriesLeft;
+
+	await assert.rejects(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 0,
+		minTimeout: 0,
+		shouldConsumeRetry(context) {
+			retriesLeft = context.retriesLeft;
+			return false;
+		},
+	}), {message: 'fail'});
+
+	assert.equal(retriesLeft, 0);
+});
+
 test('makeRetriable wraps and retries the function', async () => {
 	let callCount = 0;
 	const function_ = async (a, b) => {
@@ -822,6 +889,43 @@ test('retryDelay is zero when shouldConsumeRetry skips the retry', async () => {
 	), {message: 'test'});
 
 	assert.deepEqual(retryDelays, [0]);
+});
+
+test('shouldConsumeRetry is shown the delay it is deciding about', async () => {
+	const seen = [];
+
+	await assert.rejects(pRetry(async () => {
+		throw new Error('fail');
+	}, {
+		retries: 2,
+		minTimeout: 100,
+		randomize: false,
+		shouldConsumeRetry({retryDelay}) {
+			seen.push(['shouldConsumeRetry', retryDelay]);
+			return false;
+		},
+		onFailedAttempt({retryDelay}) {
+			seen.push(['onFailedAttempt', retryDelay]);
+		},
+		shouldRetry: () => false,
+	}), {message: 'fail'});
+
+	// The first failure is shown the delay that would have been used, since that is what the decision is about. The failure notification then reports that no retry follows, because the retry was skipped.
+	assert.deepEqual(seen, [['shouldConsumeRetry', 100], ['onFailedAttempt', 0]]);
+});
+
+test('an invalid option is reported before the signal is checked', async () => {
+	const controller = new AbortController();
+	controller.abort(fixtureError);
+
+	// A bad option is a mistake in the call itself, so a cancellation must not hide it.
+	await assert.rejects(pRetry(async () => fixture, {
+		signal: controller.signal,
+		retries: -1,
+	}), {
+		name: 'TypeError',
+		message: /non-negative/v,
+	});
 });
 
 // Callback contract
@@ -1052,6 +1156,24 @@ test('a rejected promise from a callback aborts the retries', async () => {
 	}
 });
 
+test('a non-Error thrown by a callback is rejected as is', async () => {
+	// An operation's non-Error throw is normalized, but a callback's own value is passed through untouched, the same as an error from a callback is.
+	for (const name of ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry']) {
+		const thrown = {from: name};
+		const options = {
+			retries: 2,
+			minTimeout: 0,
+			async [name]() {
+				throw thrown;
+			},
+		};
+
+		await assert.rejects(pRetry(async () => {
+			throw new Error('fail');
+		}, options), error => error === thrown, name);
+	}
+});
+
 test('a callback may return a thenable', {timeout: 30_000}, async () => {
 	let isResolved = false;
 	let calls = 0;
@@ -1147,6 +1269,45 @@ try {
 		assert.equal(timedOut, false, 'the run must finish rather than loop forever');
 		// Two retries means three attempts.
 		assert.match(stdout, /attempts=3/v);
+	} finally {
+		await removeTemporaryScript(temporaryFile);
+	}
+});
+
+// The same hazard with the time budget as the only bound, which is what the `shouldConsumeRetry` docs say to pair the option with. The operation yields here, so the budget can advance. A subprocess is killed from outside, because a regression starves the event loop and no in-process timeout would fire.
+test('maxRetryTime bounds a run that never consumes a retry, checked from outside', {timeout: 30_000}, async () => {
+	const temporaryFile = await temporaryScript('p-retry-budget-bounded.mjs', `
+let attempts = 0;
+const start = performance.now();
+
+try {
+	await pRetry(async () => {
+		attempts++;
+		await new Promise(resolve => {
+			setTimeout(resolve, 5);
+		});
+		throw new Error('fail');
+	}, {
+		retries: Infinity,
+		minTimeout: 0,
+		maxRetryTime: 200,
+		shouldConsumeRetry: () => false,
+	});
+} catch {
+	console.log('attempts=' + attempts + ' elapsed=' + Math.round(performance.now() - start));
+}
+`);
+
+	try {
+		const {timedOut, stdout} = await execa(process.execPath, [temporaryFile], {timeout: 8000, reject: false});
+		assert.equal(timedOut, false, 'the time budget must end the run rather than loop forever');
+
+		const match = stdout.match(/attempts=(?<attempts>\d+) elapsed=(?<elapsed>\d+)/v);
+		assert.ok(match, 'the script reported its run');
+
+		// More attempts than the retry budget allows, so the time budget is what ended the run.
+		assert.ok(Number(match.groups.attempts) > 2, `the free retries kept going, got ${match.groups.attempts} attempts`);
+		assert.ok(Number(match.groups.elapsed) < 4000, `the run stopped near the budget, took ${match.groups.elapsed}ms`);
 	} finally {
 		await removeTemporaryScript(temporaryFile);
 	}

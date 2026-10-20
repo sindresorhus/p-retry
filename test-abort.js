@@ -1,3 +1,4 @@
+import process from 'node:process';
 import {getEventListeners} from 'node:events';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -168,6 +169,21 @@ test('aborting while the operation is in flight stops it without waiting out the
 	}), rejectsWith(fixtureError));
 
 	assert.deepEqual(calls, []);
+});
+
+test('a cancellation wins over a TypeError that is never retried', async () => {
+	// A non-network `TypeError` ends the run before any callback, but the abort check comes first, so the caller still gets the reason they chose.
+	const controller = new AbortController();
+	const reason = new Error('cancelled');
+
+	await assert.rejects(pRetry(async () => {
+		controller.abort(reason);
+		throw new TypeError('operation failed');
+	}, {
+		signal: controller.signal,
+		retries: 3,
+		minTimeout: 0,
+	}), error => error === reason);
 });
 
 test('a signal reason is not unwrapped, and wins over an AbortError', async () => {
@@ -404,6 +420,73 @@ test('a cancellation during shouldRetry is caught before the delay is set up', {
 	);
 });
 
+test('an abort that lands after the delay stops the next attempt', {timeout: 10_000}, async t => {
+	// The delay resolves from its timer, and the retry resumes in a promise microtask. A `nextTick` callback runs before that microtask, so this aborts in the window between the delay and the next attempt, which is the only thing the check at the top of the loop guards. Without it, the aborted attempt still runs.
+	const controller = new AbortController();
+	const cancelled = new Error('cancelled');
+	const originalSetTimeout = setTimeout;
+	const retryDelay = 17; // Not a delay any other timer in this test asks for.
+	let isArmed = false;
+	let attempts = 0;
+
+	globalThis.setTimeout = (function_, ms, ...rest) => {
+		if (!isArmed || ms !== retryDelay) {
+			return originalSetTimeout(function_, ms, ...rest);
+		}
+
+		isArmed = false;
+
+		return originalSetTimeout(() => {
+			function_();
+			process.nextTick(() => {
+				controller.abort(cancelled);
+			});
+		}, ms, ...rest);
+	};
+
+	t.after(() => {
+		globalThis.setTimeout = originalSetTimeout;
+	});
+
+	await assert.rejects(pRetry(async () => {
+		attempts++;
+		isArmed = true;
+		throw new Error('operation failed');
+	}, {
+		signal: controller.signal,
+		retries: 5,
+		minTimeout: retryDelay,
+		factor: 1,
+	}), rejectsWith(cancelled));
+
+	assert.equal(attempts, 1, 'the retry after the abort never ran');
+});
+
+test('an abort does not interrupt an attempt that is already running', async () => {
+	const controller = new AbortController();
+	const {promise, resolve} = Promise.withResolvers();
+
+	const attempt = pRetry(async () => {
+		// Settles only when the test says so, the way a request that ignores the signal would.
+		await promise;
+		return fixture;
+	}, {signal: controller.signal, retries: 1});
+
+	controller.abort(fixtureError);
+
+	// The retry cannot settle before `resolve`, so the timer always wins while the attempt is still running.
+	const outcome = await Promise.race([
+		attempt.then(() => 'settled').catch(() => 'settled'),
+		delay(20).then(() => 'pending'),
+	]);
+
+	assert.equal(outcome, 'pending', 'the abort does not interrupt the attempt');
+
+	// Once the attempt settles, the abort reason is what the retry rejects with.
+	resolve(fixture);
+	await assert.rejects(attempt, rejectsWith(fixtureError));
+});
+
 test('a cancellation is final whatever a callback returns', async () => {
 	// The reported error must not depend on what the callback returned, including when no retry was going to follow.
 	for (const [abortIn, returnsTrue] of [
@@ -494,6 +577,59 @@ test('a callback that throws is reported even when the signal is already aborted
 			},
 		}), rejectsWith(thrown), name);
 	}
+});
+
+test('an AbortError thrown by a callback is preserved and stops the ones after it', async () => {
+	// The docs promise a callback's `AbortError` is preserved as is, which also means the callbacks after it do not run.
+	const matrix = new Map([
+		['shouldConsumeRetry', ['shouldConsumeRetry']],
+		['onFailedAttempt', ['shouldConsumeRetry', 'onFailedAttempt']],
+		['shouldRetry', ['shouldConsumeRetry', 'onFailedAttempt', 'shouldRetry']],
+	]);
+
+	for (const [abortIn, expected] of matrix) {
+		const abortError = new AbortError(`from ${abortIn}`);
+		const calls = [];
+
+		const options = {
+			retries: 2,
+			minTimeout: 0,
+			shouldConsumeRetry() {
+				calls.push('shouldConsumeRetry');
+				if (abortIn === 'shouldConsumeRetry') {
+					throw abortError;
+				}
+
+				return true;
+			},
+			onFailedAttempt() {
+				calls.push('onFailedAttempt');
+				if (abortIn === 'onFailedAttempt') {
+					throw abortError;
+				}
+			},
+			shouldRetry() {
+				calls.push('shouldRetry');
+				if (abortIn === 'shouldRetry') {
+					throw abortError;
+				}
+
+				return true;
+			},
+		};
+
+		await assert.rejects(pRetry(async () => {
+			throw new Error('fail');
+		}, options), error => error === abortError, abortIn);
+
+		assert.deepEqual(calls, expected, abortIn);
+	}
+});
+
+test('AbortError keeps the error it is given', () => {
+	// The caller's own error is what a `catch` sees, so it has to be the same object rather than a copy.
+	const original = new Error('mine');
+	assert.equal(new AbortError(original).originalError, original);
 });
 
 test('a shared signal aborts every concurrent retry', {timeout: 10_000}, async () => {

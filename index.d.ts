@@ -165,6 +165,8 @@ export type Options = {
 
 	Set this to `0` to retry immediately with no delay.
 
+	A delay is a whole number of milliseconds, so a `minTimeout` below `0.5` makes the first delay `0` and schedules no timer for it. `randomize` scales the delay up by between 1 and 2, and a `factor` above `1` grows later delays, so either can push a delay back above the threshold.
+
 	> [!WARNING]
 	> A delay of `0` schedules no timer at all. If the operation also fails without waiting on a timer or I/O, attempts run back to back without ever yielding to the event loop. Combined with `retries: Infinity`, that is a busy loop that keeps the CPU pinned and stops timers, I/O, and `signal` from ever running. Use a small non-zero value if the operation can fail indefinitely.
 
