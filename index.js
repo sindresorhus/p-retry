@@ -172,10 +172,8 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 		throw unwrapAbortError(normalizedError);
 	}
 
-	// `retriesConsumed` only ever advances while `retriesLeft` is above 0, so this is never negative.
-	const retriesLeft = Number.isFinite(options.retries)
-		? options.retries - retriesConsumed
-		: options.retries;
+	// `retriesConsumed` only ever advances while `retriesLeft` is above 0, so this is never negative. `Infinity` minus a finite count is `Infinity`, so an unlimited budget needs no special case.
+	const retriesLeft = options.retries - retriesConsumed;
 
 	// A `TypeError` normally means the operation itself is broken rather than the thing it was trying to reach, so retrying it does not help. A network `TypeError` is the exception, and its message differs per runtime, so it has to be recognised rather than assumed.
 	const isRetriableError = !(normalizedError instanceof TypeError) || isNetworkError(normalizedError);
@@ -288,7 +286,8 @@ export default async function pRetry(input, options = {}) {
 	let retriesConsumed = 0;
 	const startTime = performance.now();
 
-	while (Number.isFinite(options.retries) ? retriesConsumed <= options.retries : true) {
+	// A consumed count is always finite, so `Infinity` keeps this true and needs no special case.
+	while (retriesConsumed <= options.retries) {
 		attemptNumber++;
 
 		try {
