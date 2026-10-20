@@ -90,7 +90,7 @@ The `context` object contains:
 - `attemptNumber` - The attempt number (starts at 1)
 - `retriesLeft` - Number of retries remaining
 - `retriesConsumed` - Number of retries consumed so far
-- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`). This is `0` when no retry will occur based on the checks completed before the current callback runs. `shouldConsumeRetry` is the exception: it is shown the delay that would be used, since deciding whether to consume the retry is what it is being asked.
+- `retryDelay` - The delay in milliseconds before the next retry (based on `minTimeout`, `factor`, `maxTimeout`, and `randomize`). The actual delay may be shorter if it would exceed `maxRetryTime`. This is `0` when no retry will occur based on the checks completed before the current callback runs. `shouldConsumeRetry` is the exception: it is shown the delay that would be used, since deciding whether to consume the retry is what it is being asked.
 
 The `onFailedAttempt` function can return a promise. For example, to add a [delay](https://github.com/sindresorhus/delay):
 
@@ -277,13 +277,13 @@ Throw this from `input` to abort retrying and reject the promise. No callback fu
 
 When `input` throws an `AbortError`, the promise rejects with the wrapped error. When you pass an error, a `catch` sees that error. When you pass a message, it sees a plain `Error` with that message. An `AbortError` thrown by a callback or passed as a `signal` abort reason is preserved as is.
 
-### message
+#### message
 
 Type: `string`
 
 An error message. Optional.
 
-### error
+#### error
 
 Type: `Error`
 
