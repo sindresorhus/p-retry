@@ -156,10 +156,11 @@ const run = async () => { … };
 const result = await pRetry(run, {
 	retries: 2,
 	shouldConsumeRetry: ({error, retriesLeft}) => !(error instanceof RateLimitError),
+	maxRetryTime: 60_000,
 });
 ```
 
-In the example above, `RateLimitError`s will not decrement the available `retries`.
+In the example above, `RateLimitError`s will not decrement the available `retries`, so `maxRetryTime` is what ends the run if the rate limit never clears.
 
 > [!WARNING]
 > Failures that do not consume a retry also do not count towards `retries`, so returning `false` on every failure means `pRetry` never runs out of attempts. `maxRetryTime` is then the only bound, and it defaults to `Infinity`. Pair this option with `maxRetryTime`, or return `false` only for failures you expect to stop eventually. These retries also have no delay, so an operation that fails without waiting on a timer or I/O runs back to back without yielding to the event loop, and a `signal` aborted from a timer or an event cannot stop it.
@@ -229,7 +230,9 @@ Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSign
 
 You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
 
-Once the signal is aborted, the abort reason is what the promise rejects with, whatever the operation threw and whatever the callbacks returned. A cancellation is the caller's decision and is not overwritten by a later failure.
+Once the signal is aborted, the abort reason is what the promise rejects with, whatever the operation threw and whatever the callbacks returned. A cancellation is the caller's decision and is not overwritten by a later failure. If the signal is already aborted, `input` is never called.
+
+An attempt that is already running is not interrupted, so the promise rejects when it settles. Pass the signal to the operation as well if the operation itself should be cancelled.
 
 The exception is a callback that throws or rejects: the boundary checks sit between the callbacks, so an error raised inside one is reported rather than replaced. An abort that lands before the callback is reached still wins.
 
@@ -263,6 +266,8 @@ Only affects platforms with a `.unref()` method on timeouts, such as Node.js.
 ### makeRetriable(function, options?)
 
 Wrap a function so that each call is automatically retried on failure.
+
+The wrapped function is called with the `this` the wrapper was called with, so a function that declares a `this` type keeps it.
 
 ```js
 import {makeRetriable} from 'p-retry';

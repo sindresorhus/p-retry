@@ -52,6 +52,21 @@ expectTypeOf(pRetry(() => 'foo', {
 	signal: new AbortController().signal,
 })).toBe<Promise<string>>();
 
+// The runtime treats `undefined` as "not provided" for every option, and the suite relies on it for the callbacks, so an options object built from optional configuration has to type-check. Only visible with `exactOptionalPropertyTypes`.
+expectTypeOf(pRetry(() => 'foo', {
+	retries: undefined,
+	factor: undefined,
+	minTimeout: undefined,
+	maxTimeout: undefined,
+	maxRetryTime: undefined,
+	randomize: undefined,
+	unref: undefined,
+	onFailedAttempt: undefined,
+	shouldRetry: undefined,
+	shouldConsumeRetry: undefined,
+	signal: undefined,
+})).toBe<Promise<string>>();
+
 expectTypeOf(pRetry(() => 'foo', {
 	shouldRetry: () => false,
 })).toBe<Promise<string>>();
@@ -114,3 +129,16 @@ expectError(pRetry());
 const retried = makeRetriable(async (a: string, b: number) => `${a}${b}`, {retries: 1});
 expectTypeOf(retried('foo', 1)).toBe<Promise<string>>();
 expectError(retried('foo', 'bar'));
+
+// Explicit type arguments in the order of the earlier releases still work, because `This` comes last and has a default.
+const retriedExplicit = makeRetriable<[string], number>(async (a: string) => a.length);
+expectTypeOf(retriedExplicit('foo')).toBe<Promise<number>>();
+
+// The wrapper calls the function with the receiver it was called with, so a function that declares `this` must keep it. Without it, the type would allow a call that crashes at runtime.
+function usesThis(this: {value: number}, extra: string) {
+	return `${this.value}${extra}`;
+}
+
+const retriedWithThis = makeRetriable(usesThis, {retries: 1});
+expectTypeOf(retriedWithThis.call({value: 1}, 'foo')).toBe<Promise<string>>();
+expectError(retriedWithThis('foo'));

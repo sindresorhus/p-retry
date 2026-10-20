@@ -296,12 +296,14 @@ test('the delay that is scheduled is the one the callbacks are shown', async t =
 
 test('unref is applied to a delay shortened by maxRetryTime', {timeout: 30_000}, async t => {
 	let unrefCalls = 0;
+	const scheduled = [];
 	const originalSetTimeout = setTimeout;
 	const originalPerformanceNow = performance.now;
 	let now = 0;
 
 	performance.now = () => now;
-	globalThis.setTimeout = function_ => {
+	globalThis.setTimeout = (function_, ms) => {
+		scheduled.push(ms);
 		const token = originalSetTimeout(function_, 0);
 		token.unref = () => {
 			unrefCalls++;
@@ -327,6 +329,7 @@ test('unref is applied to a delay shortened by maxRetryTime', {timeout: 30_000},
 	}), {message: 'fail'});
 
 	// The 1000ms delay was trimmed to the 10ms that was left, and the trimmed timer still has to be unref'd.
+	assert.deepEqual(scheduled, [10]);
 	assert.equal(unrefCalls, 1);
 });
 
@@ -717,22 +720,28 @@ test('the delays work with the built-in test timer mocking', async t => {
 	assert.equal(attempts, 3);
 });
 
-test('a minTimeout below half a millisecond schedules no timer', async t => {
-	// Documented, because it is the same no-timer state as `minTimeout: 0`. The second row is the control that shows where the rounding turns over. `randomize` is off, since it scales the delay up first and moves the threshold.
+test('a minTimeout below half a millisecond schedules no timer for the first delay', async t => {
+	// Documented, because it is the same no-timer state as `minTimeout: 0`. The second row is the control that shows where the rounding turns over, and the third shows a later delay growing back over it. `randomize` is off, since it scales the delay up first and moves the threshold.
 	const delays = collapseDelays(t);
 	let readFrom = 0;
 
-	for (const [minTimeout, expected] of [[0.4, []], [0.5, [1]]]) {
+	const table = [
+		['just below the threshold', {minTimeout: 0.4}, []],
+		['at the threshold', {minTimeout: 0.5}, [1]],
+		['a growing factor lifts the next delay over it', {minTimeout: 0.4, retries: 2, factor: 2}, [1]],
+	];
+
+	for (const [label, options, expected] of table) {
 		await assert.rejects(pRetry(async () => {
 			throw new Error('fail');
 		}, {
 			retries: 1,
-			minTimeout,
 			factor: 1,
 			randomize: false,
-		}), {message: 'fail'}, String(minTimeout));
+			...options,
+		}), {message: 'fail'}, label);
 
-		assert.deepEqual(delays.slice(readFrom), expected, String(minTimeout));
+		assert.deepEqual(delays.slice(readFrom), expected, label);
 		readFrom = delays.length;
 	}
 

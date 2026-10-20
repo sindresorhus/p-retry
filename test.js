@@ -658,23 +658,6 @@ test('a huge finite retries count behaves as effectively forever', async () => {
 	assert.equal(attempts, 50);
 });
 
-test('retriesLeft never goes below zero for a failure that does not consume', async () => {
-	let retriesLeft;
-
-	await assert.rejects(pRetry(async () => {
-		throw new Error('fail');
-	}, {
-		retries: 0,
-		minTimeout: 0,
-		shouldConsumeRetry(context) {
-			retriesLeft = context.retriesLeft;
-			return false;
-		},
-	}), {message: 'fail'});
-
-	assert.equal(retriesLeft, 0);
-});
-
 test('makeRetriable wraps and retries the function', async () => {
 	let callCount = 0;
 	const function_ = async (a, b) => {
@@ -781,6 +764,7 @@ test('shouldConsumeRetry receives normalized error for non-error throws', async 
 
 test('shouldConsumeRetry returning false still respects retry budget', async () => {
 	let attempts = 0;
+	let retriesLeft;
 
 	// With `retries: 0` the run must stop after the first failure, even though that failure did not consume a retry. The `AbortError` on a later attempt only keeps a regression from looping forever, so it fails on the rejection message rather than hanging.
 	await assert.rejects(pRetry(async () => {
@@ -794,10 +778,15 @@ test('shouldConsumeRetry returning false still respects retry budget', async () 
 	}, {
 		retries: 0,
 		minTimeout: 0,
-		shouldConsumeRetry: () => false,
+		shouldConsumeRetry({retriesLeft: remaining}) {
+			retriesLeft = remaining;
+			return false;
+		},
 	}), {message: 'fail'});
 
 	assert.equal(attempts, 1);
+	// A failure that does not consume cannot push the count below zero.
+	assert.equal(retriesLeft, 0);
 });
 
 test('shouldConsumeRetry returning false still calls shouldRetry', async () => {
@@ -870,6 +859,7 @@ test('retryDelay is 0 for a TypeError that is never retried', async () => {
 });
 
 test('retryDelay is zero when shouldConsumeRetry skips the retry', async () => {
+	const candidateDelays = [];
 	const retryDelays = [];
 
 	await assert.rejects(pRetry(
@@ -880,7 +870,10 @@ test('retryDelay is zero when shouldConsumeRetry skips the retry', async () => {
 			retries: 2,
 			minTimeout: 100,
 			randomize: false,
-			shouldConsumeRetry: () => false,
+			shouldConsumeRetry({retryDelay}) {
+				candidateDelays.push(retryDelay);
+				return false;
+			},
 			shouldRetry: () => false,
 			onFailedAttempt({retryDelay}) {
 				retryDelays.push(retryDelay);
@@ -888,30 +881,9 @@ test('retryDelay is zero when shouldConsumeRetry skips the retry', async () => {
 		},
 	), {message: 'test'});
 
+	// The callback deciding whether to consume the retry is shown the delay that would be used, and the failure notification then reports that no retry follows.
+	assert.deepEqual(candidateDelays, [100]);
 	assert.deepEqual(retryDelays, [0]);
-});
-
-test('shouldConsumeRetry is shown the delay it is deciding about', async () => {
-	const seen = [];
-
-	await assert.rejects(pRetry(async () => {
-		throw new Error('fail');
-	}, {
-		retries: 2,
-		minTimeout: 100,
-		randomize: false,
-		shouldConsumeRetry({retryDelay}) {
-			seen.push(['shouldConsumeRetry', retryDelay]);
-			return false;
-		},
-		onFailedAttempt({retryDelay}) {
-			seen.push(['onFailedAttempt', retryDelay]);
-		},
-		shouldRetry: () => false,
-	}), {message: 'fail'});
-
-	// The first failure is shown the delay that would have been used, since that is what the decision is about. The failure notification then reports that no retry follows, because the retry was skipped.
-	assert.deepEqual(seen, [['shouldConsumeRetry', 100], ['onFailedAttempt', 0]]);
 });
 
 test('an invalid option is reported before the signal is checked', async () => {

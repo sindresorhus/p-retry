@@ -44,6 +44,9 @@ test('AbortError - works where the runtime cannot trim a stack', () => {
 	const original = Reflect.get(Error, 'captureStackTrace');
 	Reflect.set(Error, 'captureStackTrace', undefined);
 
+	// A silent no-op would leave the trimming in place and turn this into a copy of the stack tests.
+	assert.equal(Reflect.get(Error, 'captureStackTrace'), undefined);
+
 	try {
 		const {message, stack} = new AbortError('fixture').originalError;
 		assert.equal(message, 'fixture');

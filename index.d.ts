@@ -83,7 +83,7 @@ export type Options = {
 
 	If the `onFailedAttempt` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
-	readonly onFailedAttempt?: (context: RetryContext) => void | Promise<void>;
+	readonly onFailedAttempt?: ((context: RetryContext) => void | Promise<void>) | undefined;
 
 	/**
 	Decide if a retry should occur based on the context. Returning true triggers a retry, false aborts with the error. Returning nothing counts as `false`.
@@ -107,7 +107,7 @@ export type Options = {
 
 	If the `shouldRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
-	readonly shouldRetry?: (context: RetryContext) => boolean | Promise<boolean>;
+	readonly shouldRetry?: ((context: RetryContext) => boolean | Promise<boolean>) | undefined;
 
 	/**
 	Decide if this failure should consume a retry from the `retries` budget.
@@ -132,24 +132,25 @@ export type Options = {
 			console.log(`Retries left: ${retriesLeft}`);
 			return !(error instanceof RateLimitError);
 		},
+		maxRetryTime: 60_000,
 	});
 	```
 
-	In the example above, `RateLimitError`s will not decrement the available `retries`.
+	In the example above, `RateLimitError`s will not decrement the available `retries`, so `maxRetryTime` is what ends the run if the rate limit never clears.
 
 	> [!WARNING]
 	> Failures that do not consume a retry also do not count towards `retries`, so returning `false` on every failure means `pRetry` never runs out of attempts. `maxRetryTime` is then the only bound, and it defaults to `Infinity`. Pair this option with `maxRetryTime`, or return `false` only for failures you expect to stop eventually. These retries also have no delay, so an operation that fails without waiting on a timer or I/O runs back to back without yielding to the event loop, and a `signal` aborted from a timer or an event cannot stop it.
 
 	If the `shouldConsumeRetry` function throws, all retries will be aborted and the original promise will reject with the thrown error.
 	*/
-	readonly shouldConsumeRetry?: (context: RetryContext) => boolean | void | Promise<boolean | void>;
+	readonly shouldConsumeRetry?: ((context: RetryContext) => boolean | void | Promise<boolean | void>) | undefined;
 
 	/**
 	The maximum amount of times to retry the operation. Must be a non-negative integer or `Infinity`.
 
 	@default 10
 	*/
-	readonly retries?: number;
+	readonly retries?: number | undefined;
 
 	/**
 	The exponential factor to use.
@@ -158,7 +159,7 @@ export type Options = {
 
 	@default 2
 	*/
-	readonly factor?: number;
+	readonly factor?: number | undefined;
 
 	/**
 	The number of milliseconds before starting the first retry.
@@ -172,7 +173,7 @@ export type Options = {
 
 	@default 1000
 	*/
-	readonly minTimeout?: number;
+	readonly minTimeout?: number | undefined;
 
 	/**
 	The maximum number of milliseconds between two retries.
@@ -183,14 +184,14 @@ export type Options = {
 
 	@default Infinity
 	*/
-	readonly maxTimeout?: number;
+	readonly maxTimeout?: number | undefined;
 
 	/**
 	Randomizes the timeouts by multiplying with a factor between 1 and 2.
 
 	@default false
 	*/
-	readonly randomize?: boolean;
+	readonly randomize?: boolean | undefined;
 
 	/**
 	The maximum time (in milliseconds) that retrying is allowed to take.
@@ -201,12 +202,14 @@ export type Options = {
 
 	The limit is checked after failed attempts and callbacks, before scheduling a retry. The retry delay is shortened to the remaining time, but the scheduled retry can still start after the limit. Attempts and callbacks are never interrupted, so they can run past the limit.
 	*/
-	readonly maxRetryTime?: number;
+	readonly maxRetryTime?: number | undefined;
 
 	/**
 	You can abort retrying using [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
 
-	Once the signal is aborted, the abort reason is what the promise rejects with, whatever the operation threw and whatever the callbacks returned. A cancellation is the caller's decision and is not overwritten by a later failure.
+	Once the signal is aborted, the abort reason is what the promise rejects with, whatever the operation threw and whatever the callbacks returned. A cancellation is the caller's decision and is not overwritten by a later failure. If the signal is already aborted, `input` is never called.
+
+	An attempt that is already running is not interrupted, so the promise rejects when it settles. Pass the signal to the operation as well if the operation itself should be cancelled.
 
 	The exception is a callback that throws or rejects: the boundary checks sit between the callbacks, so an error raised inside one is reported rather than replaced. An abort that lands before the callback is reached still wins.
 
@@ -237,7 +240,7 @@ export type Options = {
 
 	@default false
 	*/
-	readonly unref?: boolean;
+	readonly unref?: boolean | undefined;
 };
 
 /**
@@ -276,6 +279,8 @@ export default function pRetry<T>(
 /**
 Wrap a function so that each call is automatically retried on failure.
 
+The wrapped function is called with the `this` the wrapper was called with, so a function that declares a `this` type keeps it.
+
 @example
 ```
 import {makeRetriable} from 'p-retry';
@@ -285,7 +290,7 @@ const fetchWithRetry = makeRetriable(fetch, {retries: 5});
 const response = await fetchWithRetry('https://sindresorhus.com/unicorn');
 ```
 */
-export function makeRetriable<Arguments extends readonly unknown[], Result>(
-	function_: (...arguments_: Arguments) => PromiseLike<Result> | Result,
+export function makeRetriable<Arguments extends readonly unknown[], Result, This = unknown>(
+	function_: (this: This, ...arguments_: Arguments) => PromiseLike<Result> | Result,
 	options?: Options,
-): (...arguments_: Arguments) => Promise<Result>;
+): (this: This, ...arguments_: Arguments) => Promise<Result>;
