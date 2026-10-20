@@ -176,16 +176,16 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 	// A `TypeError` normally means the operation itself is broken rather than the thing it was trying to reach, so retrying it does not help. A network `TypeError` is the exception, and its message differs per runtime, so it has to be recognised rather than assumed.
 	const isRetriableError = !(normalizedError instanceof TypeError) || isNetworkError(normalizedError);
 
-	// Out of time already, or a failure that is never retried, so the callbacks must be told that no retry follows.
+	// Out of time already, out of retries, or a failure that is never retried, so the delay is 0 and the callbacks are told that no retry follows. Only computed when a retry can still follow, so a randomized delay does not draw from `Math.random` for a wait that is never taken.
 	const timeLeft = calculateRemainingTime(startTime, options.maxRetryTime);
-	const delayTime = isRetriableError && timeLeft > 0 ? calculateDelay(retriesConsumed, options) : 0;
+	const delayTime = isRetriableError && timeLeft > 0 && retriesLeft > 0 ? calculateDelay(retriesConsumed, options) : 0;
 
 	const consumeRetryContext = Object.freeze({
 		error: normalizedError,
 		attemptNumber,
 		retriesLeft,
 		retriesConsumed,
-		retryDelay: retriesLeft > 0 ? delayTime : 0,
+		retryDelay: delayTime,
 	});
 
 	// No answer means no opinion, so fall back to the default. Treating it as `false` instead would leave `retries` uncounted and let the loop run forever.
@@ -193,7 +193,7 @@ async function onAttemptFailure({error, attemptNumber, retriesConsumed, startTim
 
 	abortIfNeeded();
 
-	const effectiveDelay = consumeRetry && retriesLeft > 0 ? delayTime : 0;
+	const effectiveDelay = consumeRetry ? delayTime : 0;
 	const context = Object.freeze({
 		error: normalizedError,
 		attemptNumber,

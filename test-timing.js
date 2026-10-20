@@ -254,6 +254,48 @@ test('randomize affects retry delays', async t => {
 	assert.deepEqual(delays, [100, 200, 150]);
 });
 
+test('a randomized delay is only drawn when a retry is still possible', async t => {
+	collapseDelays(t);
+	const originalRandom = Math.random;
+	let draws = 0;
+
+	Math.random = () => {
+		draws++;
+		return 0.5;
+	};
+
+	t.after(() => {
+		Math.random = originalRandom;
+	});
+
+	// The delay is computed before `shouldRetry` and `shouldConsumeRetry` answer, since they are shown the delay that would be used. It is not computed once the budget, the error type, or the retry count has already ruled a retry out, so a run that is over does not draw from `Math.random`.
+	const table = [
+		['one retry', {retries: 1}, 1],
+		['no retries', {retries: 0}, 0],
+		['a retry that shouldRetry then refuses', {retries: 3, shouldRetry: () => false}, 1],
+		['an exhausted budget', {retries: 3, maxRetryTime: 0}, 0],
+	];
+
+	for (const [label, options, expected] of table) {
+		draws = 0;
+
+		await assert.rejects(pRetry(async () => {
+			throw new Error('fail');
+		}, {minTimeout: 10, randomize: true, ...options}), {message: 'fail'}, label);
+
+		assert.equal(draws, expected, label);
+	}
+
+	// A failure that is never retried does not compute a delay either.
+	draws = 0;
+
+	await assert.rejects(pRetry(async () => {
+		throw new TypeError('nope');
+	}, {minTimeout: 10, randomize: true, retries: 3}), {name: 'TypeError'});
+
+	assert.equal(draws, 0);
+});
+
 test('the time the operation takes counts toward maxRetryTime', {timeout: 30_000}, async t => {
 	const {delays} = await withFakeTime(t);
 	let attempts = 0;
